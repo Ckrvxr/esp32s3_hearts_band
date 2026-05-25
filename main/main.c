@@ -6,6 +6,7 @@
 #include "esp_log.h"
 
 #include "display.h"
+#include "key.h"
 
 static const char *TAG = "RTOS";
 
@@ -26,9 +27,20 @@ static void vDisplayTask(void *pvParameters)
     }
 }
 
+static void vKeyTask(void *pvParameters)
+{
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    while (1) {
+        Key_Scan();
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(20));
+    }
+}
+
 void app_main(void)
 {
     Display_Init();
+    Key_Init();
     xTaskCreatePinnedToCore(MainTask, "MainTask", 4096, NULL, 1, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 6144, NULL, 2, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(vKeyTask, "KeyTask", 2048, NULL, 1, NULL, tskNO_AFFINITY);
 }
