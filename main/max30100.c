@@ -21,6 +21,8 @@ static i2c_master_dev_handle_t dev_handle;
 static uint8_t current_ir_idx  = 0x07;
 static uint8_t current_red_idx = 0x04;
 
+MAX30100_State_t g_max30100_state = MAX30100_STATE_NORMAL;
+
 esp_err_t MAX30100_Init(void)
 {
     i2c_master_bus_config_t bus_cfg = {
@@ -134,4 +136,24 @@ void MAX30100_AutoAdjustCurrent(void)
         MAX30100_WriteReg(MAX30100_REG_LED_CONFIG, (current_ir_idx << 4) | current_red_idx);
         ESP_LOGI(TAG, "Current adj: IR=0x%X RED=0x%X (IR raw=%u)", current_ir_idx, current_red_idx, ir);
     }
+}
+
+void MAX30100_Sleep(void)
+{
+    uint8_t mode;
+    if (MAX30100_ReadReg(MAX30100_REG_MODE_CONFIG, &mode) != ESP_OK) return;
+    mode |= MAX30100_MODE_SHDN;
+    MAX30100_WriteReg(MAX30100_REG_MODE_CONFIG, mode);
+    g_max30100_state = MAX30100_STATE_SLEEPING;
+    ESP_LOGI(TAG, "Sleeping");
+}
+
+void MAX30100_Wake(void)
+{
+    MAX30100_WriteReg(MAX30100_REG_MODE_CONFIG, MAX30100_MODE_SPO2_HR);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    MAX30100_WriteReg(MAX30100_REG_FIFO_WRITE_POINTER, 0);
+    MAX30100_WriteReg(MAX30100_REG_FIFO_READ_POINTER, 0);
+    g_max30100_state = MAX30100_STATE_NORMAL;
+    ESP_LOGI(TAG, "Woken");
 }

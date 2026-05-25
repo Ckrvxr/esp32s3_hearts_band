@@ -44,20 +44,88 @@ static void vMax30100Task(void *pvParameters)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xLastAdj = xTaskGetTickCount();
+    TickType_t xIdleStart = 0;
     uint16_t ir[MAX30100_FIFO_DEPTH];
     uint16_t red[MAX30100_FIFO_DEPTH];
 
     while (1) {
-        uint8_t n = MAX30100_ReadFifo(ir, red);
-        if (n > 0) {
-            for (int i = 0; i < n; i++) {
-                ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
-            }
-        }
+        TickType_t now = xTaskGetTickCount();
 
-        if ((xTaskGetTickCount() - xLastAdj) >= pdMS_TO_TICKS(MAX30100_AC_ADJUST_INTERVAL_MS)) {
-            MAX30100_AutoAdjustCurrent();
-            xLastAdj = xTaskGetTickCount();
+        switch (g_max30100_state) {
+            case MAX30100_STATE_NORMAL:
+            {
+                uint8_t n = MAX30100_ReadFifo(ir, red);
+                if (n > 0) {
+                    uint8_t no_signal = 1;
+                    for (int i = 0; i < n; i++) {
+                        if (ir[i] >= MAX30100_IDLE_THRESHOLD || red[i] >= MAX30100_IDLE_THRESHOLD) {
+                            no_signal = 0;
+                        }
+                        ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
+                    }
+                    if (no_signal) {
+                        xIdleStart = now;
+                        g_max30100_state = MAX30100_STATE_IDLE;
+                    }
+                }
+
+                if ((now - xLastAdj) >= pdMS_TO_TICKS(MAX30100_AC_ADJUST_INTERVAL_MS)) {
+                    MAX30100_AutoAdjustCurrent();
+                    xLastAdj = now;
+                }
+                break;
+            }
+
+            case MAX30100_STATE_IDLE:
+            {
+                uint8_t n = MAX30100_ReadFifo(ir, red);
+                if (n > 0) {
+                    uint8_t no_signal = 1;
+                    for (int i = 0; i < n; i++) {
+                        if (ir[i] >= MAX30100_IDLE_THRESHOLD || red[i] >= MAX30100_IDLE_THRESHOLD) {
+                            no_signal = 0;
+                        }
+                        ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
+                    }
+                    if (!no_signal) {
+                        g_max30100_state = MAX30100_STATE_NORMAL;
+                    } else if ((now - xIdleStart) >= pdMS_TO_TICKS(MAX30100_IDLE_TIMEOUT_MS)) {
+                        MAX30100_Sleep();
+                        xIdleStart = now;
+                    }
+                }
+                break;
+            }
+
+            case MAX30100_STATE_SLEEPING:
+            {
+                if ((now - xIdleStart) >= pdMS_TO_TICKS(MAX30100_WAKE_INTERVAL_MS)) {
+                    MAX30100_Wake();
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                    xLastWakeTime = xTaskGetTickCount();
+
+                    uint8_t n = MAX30100_ReadFifo(ir, red);
+                    if (n > 0) {
+                        uint8_t signal_back = 0;
+                        for (int i = 0; i < n; i++) {
+                            if (ir[i] >= MAX30100_IDLE_THRESHOLD || red[i] >= MAX30100_IDLE_THRESHOLD) {
+                                signal_back = 1;
+                            }
+                            ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
+                        }
+                        if (signal_back) {
+                            g_max30100_state = MAX30100_STATE_NORMAL;
+                            xLastAdj = xTaskGetTickCount();
+                        } else {
+                            MAX30100_Sleep();
+                        }
+                    } else {
+                        MAX30100_Sleep();
+                    }
+                    xIdleStart = xTaskGetTickCount();
+                }
+                break;
+            }
         }
 
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(20));

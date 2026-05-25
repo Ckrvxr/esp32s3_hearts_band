@@ -23,6 +23,19 @@
 #define MAX30100_MODE_HR_ONLY           0x02
 #define MAX30100_MODE_SPO2_HR           0x03
 #define MAX30100_MODE_RESET             (1 << 6)
+#define MAX30100_MODE_SHDN              (1 << 7)
+
+#define MAX30100_IDLE_THRESHOLD         100
+#define MAX30100_IDLE_TIMEOUT_MS        5000
+#define MAX30100_WAKE_INTERVAL_MS       1000
+
+typedef enum {
+    MAX30100_STATE_NORMAL,
+    MAX30100_STATE_IDLE,
+    MAX30100_STATE_SLEEPING,
+} MAX30100_State_t;
+
+extern MAX30100_State_t g_max30100_state;
 
 #define MAX30100_SAMPRATE_50HZ          0x00
 #define MAX30100_SAMPRATE_100HZ         0x01
@@ -63,6 +76,8 @@
 
 esp_err_t MAX30100_Init(void);
 void     MAX30100_AutoAdjustCurrent(void);
+void     MAX30100_Sleep(void);
+void     MAX30100_Wake(void);
 esp_err_t MAX30100_ReadReg(uint8_t reg, uint8_t *val);
 esp_err_t MAX30100_WriteReg(uint8_t reg, uint8_t val);
 uint8_t   MAX30100_ReadFifo(uint16_t *ir, uint16_t *red);
