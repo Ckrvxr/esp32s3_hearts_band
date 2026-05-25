@@ -13,5 +13,9 @@
     "--query-driver=**",
     "--compile-commands-dir=c:\\Users\\Ckrvxr\\MyProject\\hearts_ring\\build"
   ],
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "editor.tokenColorCustomizations": {
+    "comments": "",
+    "textMateRules": []
+  }
 }
