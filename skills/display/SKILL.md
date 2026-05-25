@@ -1,6 +1,6 @@
 ---
 name: display
-description: 为基于 U8g2 + SSD1315/SSD1306 128x64 I2C OLED 的 Zynq FreeRTOS 嵌入式项目编写显示屏渲染代码的通用指南
+description: ESP32-S3 + U8g2 + SSD1315 128x64 I2C OLED 显示屏驱动与渲染
 ---
 
 ## 架构总览
@@ -10,14 +10,14 @@ description: 为基于 U8g2 + SSD1315/SSD1306 128x64 I2C OLED 的 Zynq FreeRTOS 
 | 文件 | 职责 |
 |------|------|
 | `display.h` | 公开 API：`DisplayState_t` 枚举、`Display_Init()`、`Display_Refresh()`、`extern volatile` 状态变量 |
-| `display.c` | 驱动层（I2C 回调、u8g2 初始化）+ 所有 `Display_Draw_*()` 场景渲染函数 + 状态分发 |
-| `key.c` | **修改**显示状态、`menu_index`、`slect_index`；display task 只读不写 |
-| `main.c` | FreeRTOS 任务创建：`vDisplayTask` @50Hz (20ms) |
+| `display.c` | 驱动层（ESP32 I2C 回调、u8g2 初始化）+ 应用层（所有 `Display_Draw_*()` 场景渲染函数 + 状态分发） |
+| `key.c` | 修改显示状态、`menu_index`、`slect_index`；display task 只读不写 |
+| `main.c` | FreeRTOS 任务创建：`MainTask` @2s + `vDisplayTask` @50Hz (20ms) |
 
 ### 渲染循环
 
 ```
-vDisplayTask (50Hz)
+vDisplayTask (50Hz, 固定周期)
   → Display_Refresh()
     → u8g2_ClearBuffer()
     → switch (currentState) → Display_Draw_*()
@@ -29,10 +29,33 @@ display task 不修改 `currentState`/`menu_index`/`slect_index`，只根据当�
 
 ### 硬件环境
 
-- SSD1315 / SSD1306 OLED, 128x64 像素
-- I2C 地址 0x3C (7-bit), u8g2 传入 0x78 (8-bit) 需要右移 1 位
-- Zynq PS7 I2C #0, 400kHz, XIicPs 驱动
+- 平台：ESP32-S3
+- OLED：SSD1315 / SSD1306, 128x64 像素
+- I2C 地址：0x3C (7-bit)
+- I2C 引脚：SCL=GPIO4, SDA=GPIO5
+- I2C 驱动：ESP-IDF `driver/i2c_master.h`（新 API，非废弃的 `driver/i2c.h`）
+- I2C 速率：400kHz
 - u8g2 初始化：`u8g2_Setup_ssd1315_i2c_128x64_noname_f()`
+
+---
+
+## 任务定义（main.c）
+
+```c
+void app_main(void)
+{
+    Display_Init();
+    xTaskCreatePinnedToCore(MainTask, "MainTask", 4096, NULL, 1, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 6144, NULL, 2, NULL, tskNO_AFFINITY);
+}
+```
+
+| 任务 | 周期 | 优先级 | 说明 |
+|------|------|--------|------|
+| `MainTask` | 2s | 1 | 心跳日志：`ESP_LOGI("RTOS", "System running.")` |
+| `vDisplayTask` | 20ms (50Hz) | 2 | 固定周期调用 `Display_Refresh()` |
+
+Display 任务优先级高于 MainTask，确保 GUI 响应优先。
 
 ---
 
@@ -42,8 +65,7 @@ display task 不修改 `currentState`/`menu_index`/`slect_index`，只根据当�
 
 ```c
 typedef enum {
-    STATE_MAIN_MENU,
-    // ... 现有状态 ...
+    STATE_MAIN_SCREEN,
     STATE_YOUR_NEW_SCREEN,        // <-- 新增
 } DisplayState_t;
 ```
@@ -54,8 +76,8 @@ typedef enum {
 
 ```
 1. u8g2_SetFont()                    → 选择字体
-2. u8g2_DrawStr(title)               → 标题栏，例如 "[My Screen]"
-3. Display_Draw_LiveAnimation(120,5) → 右上角动态指示器
+2. u8g2_DrawStr(title)               → 标题栏
+3. Display_Draw_LiveAnimation(108,2) → 右上角动态指示器（旋转方块）
 4. u8g2_DrawHLine(0, 14, 128)       → 标题分隔线
 5. 绘制菜单项 / 数值 / 图形         → 使用 Display_Draw_Cursor()
 ```
@@ -66,7 +88,7 @@ typedef enum {
 static void Display_Draw_MyScreen(void) {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
     u8g2_DrawStr(&u8g2, 0, 10, "[My Screen]");
-    Display_Draw_LiveAnimation(120, 5);
+    Display_Draw_LiveAnimation(108, 2);
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
     // 菜单项（配合 Display_Draw_Cursor）
@@ -84,8 +106,8 @@ static void Display_Draw_MyScreen(void) {
 void Display_Refresh(void) {
     u8g2_ClearBuffer(&u8g2);
     switch (currentState) {
-        // ... 现有 case ...
-        case STATE_YOUR_NEW_SCREEN: Display_Draw_MyScreen(); break;
+        case STATE_MAIN_SCREEN:     Display_Draw_MainScreen(); break;
+        case STATE_YOUR_NEW_SCREEN: Display_Draw_MyScreen();  break;
     }
     u8g2_SendBuffer(&u8g2);
     frame_count++;
@@ -146,7 +168,7 @@ if (currentState == STATE_YOUR_NEW_SCREEN) {
 
 ---
 
-## 菜单 / 光标系统模式
+## 菜单 / 光标系统
 
 ### 变量定义
 
@@ -162,8 +184,8 @@ Display_Draw_Cursor(y, is_selected, is_editing);
 ```
 
 - 未选中 → 不画
-- 浏览 → `>` 字符 + 水平抖动动画
-- 编辑 → `*` 字符 + 闪烁动画
+- 浏览 → `>` 字符 + 水平抖动动画 (`(frame_count / 4) % 2`)
+- 编辑 → `*` 字符 + 闪烁动画 (`(frame_count / 4) % 2`)
 
 ### 典型使用模式
 
@@ -188,6 +210,110 @@ static uint32_t frame_count = 0;  // Display_Refresh() 每帧自增
 
 > 注意避免直接在有符号类型和无符号类型之间做运算产生符号扩展问题。强制转换或使用一致的无符号类型。
 
+### 动态指示器实现
+
+右上角运行指示器，显示一个 2×2 方块沿 3×3 轨迹旋转：
+
+```c
+static void Display_Draw_LiveAnimation(int x, int y)
+{
+    uint8_t phase = (frame_count / 2) % 4;
+    int8_t dx = (phase == 1 || phase == 2) ? 3 : 0;
+    int8_t dy = (phase == 2 || phase == 3) ? 3 : 0;
+    u8g2_DrawBox(&u8g2, x + dx, y + dy, 2, 2);
+}
+```
+
+相位变换：左上 (0,0) → 右上 (3,0) → 右下 (3,3) → 左下 (0,3) → 循环，25Hz 刷新。
+
+---
+
+## 驱动层说明（I2C 回调）
+
+u8g2 通过回调函数与硬件通信。本项目基于 **ESP-IDF v6.0 新 I2C 驱动**（`driver/i2c_master.h`）实现了两个回调。
+
+### I2C 初始化（Display_Init 中）
+
+```c
+i2c_master_bus_config_t bus_cfg = {
+    .i2c_port = I2C_NUM_0,
+    .sda_io_num = I2C_MASTER_SDA,    // GPIO5
+    .scl_io_num = I2C_MASTER_SCL,    // GPIO4
+    .clk_source = I2C_CLK_SRC_DEFAULT,
+    .glitch_ignore_cnt = 7,
+    .flags.enable_internal_pullup = true,
+};
+ESP_ERROR_CHECK(i2c_new_master_bus(&bus_cfg, &bus_handle));
+
+i2c_device_config_t dev_cfg = {
+    .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+    .device_address = 0x3C,               // 7-bit 地址，驱动自动转换
+    .scl_speed_hz = 400000,
+};
+ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle));
+```
+
+### I2C 字节回调（缓冲模式）
+
+```c
+U8X8_MSG_BYTE_START_TRANSFER → 清空内部缓冲区 (i2c_buf_len = 0)
+U8X8_MSG_BYTE_SEND           → 将数据追加到内部缓冲区（含控制字节 0x00/0x40）
+U8X8_MSG_BYTE_END_TRANSFER   → 通过 i2c_master_transmit() 一次性发送整个缓冲区
+```
+
+注意：`u8x8_cad_ssd13xx_fast_i2c` 使用 `U8X8_MSG_CAD_SEND_DATA` 发送像素数据，而该宏的值与 `U8X8_MSG_BYTE_SEND` 相同（均为 23），因此**无需单独处理**。
+
+```c
+static uint8_t u8x8_byte_esp32_hw_i2c(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg_ptr)
+{
+    switch (msg) {
+        case U8X8_MSG_BYTE_INIT:
+        case U8X8_MSG_BYTE_SET_DC:
+            break;
+        case U8X8_MSG_BYTE_START_TRANSFER:
+            i2c_buf_len = 0;
+            break;
+        case U8X8_MSG_BYTE_SEND:
+            memcpy(i2c_tx_buf + i2c_buf_len, arg_ptr, arg_int);
+            i2c_buf_len += arg_int;
+            break;
+        case U8X8_MSG_BYTE_END_TRANSFER:
+            if (i2c_buf_len > 0) {
+                i2c_master_transmit(dev_handle, i2c_tx_buf, i2c_buf_len, 100);
+            }
+            break;
+        default:
+            return 0;
+    }
+    return 1;
+}
+```
+
+关键细节：`i2c_master_transmit` 自动发送设备地址（0x3C → 0x78 含写位），缓冲区内第一字节为控制字节（0x00=命令 / 0x40=数据）。
+
+### 延时回调
+
+使用 FreeRTOS `vTaskDelay(pdMS_TO_TICKS(arg_int))` 替代忙等待，避免阻塞其他任务。
+
+```c
+static uint8_t u8x8_gpio_and_delay_cb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg_ptr)
+{
+    switch (msg) {
+        case U8X8_MSG_GPIO_AND_DELAY_INIT: break;
+        case U8X8_MSG_DELAY_MILLI:
+            vTaskDelay(pdMS_TO_TICKS(arg_int));
+            break;
+        case U8X8_MSG_DELAY_10MICRO:
+        case U8X8_MSG_DELAY_100NANO:
+            ets_delay_us(arg_int * 10);
+            break;
+        default:
+            return 0;
+    }
+    return 1;
+}
+```
+
 ---
 
 ## 数值格式化
@@ -208,33 +334,3 @@ char formatted[32], buf[64];
 Format_With_Commas(value, formatted);
 snprintf(buf, sizeof(buf), "%s mV", formatted);  // → "1,234,567 mV"
 ```
-
----
-
-## 变量共享约定
-
-- 显示状态变量必须用 `volatile`，因为被多个任务访问
-- `display.h` 中 `extern volatile` 声明：`currentState`、`menu_index`、`slect_index`
-- 其他模块的显示数据（如测量值）由各自模块的 .h 文件用 `extern` 暴露，display.c 直接引用
-- 示例：`fir.h` 中的 `fir_progress`、`dds.h` 中的 `dds_vpp` 等
-
----
-
-## 驱动层说明（I2C 回调）
-
-u8g2 通过回调函数与硬件通信，本项目实现了两个回调：
-
-### I2C 字节回调 (`u8x8_byte_zynq_hw_i2c`)
-
-```
-U8X8_MSG_BYTE_START_TRANSFER → 清空内部缓冲区索引
-U8X8_MSG_BYTE_SEND           → 将数据追加到内部缓冲区
-U8X8_MSG_BYTE_END_TRANSFER   → 通过 XIicPs_MasterSendPolled() 一次性发送整个缓冲区
-```
-
-关键细节：u8g2 传入的 I2C 地址是 8-bit 格式（如 0x78），Zynq XIicPs 需要 7-bit 地址，因此需要右移 1 位（`address >> 1` → 0x3C）。
-
-### 延时回调 (`u8x8_gpio_and_delay_zynq`)
-
-使用 FreeRTOS `vTaskDelay(pdMS_TO_TICKS(arg_int))` 替代忙等待，避免阻塞其他任务。
-
