@@ -7,6 +7,7 @@
 
 #include "display.h"
 #include "key.h"
+#include "max30100.h"
 
 static void MainTask(void *pvParameters)
 {
@@ -39,11 +40,25 @@ static void vKeyTask(void *pvParameters)
     }
 }
 
+static void vMax30100Task(void *pvParameters)
+{
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    uint16_t ir[MAX30100_FIFO_DEPTH];
+    uint16_t red[MAX30100_FIFO_DEPTH];
+
+    while (1) {
+        MAX30100_ReadFifo(ir, red);
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(20));
+    }
+}
+
 void app_main(void)
 {
     Display_Init();
     Key_Init();
+    MAX30100_Init();
     xTaskCreatePinnedToCore(MainTask, "MainTask", 4096, NULL, 1, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 6144, NULL, 2, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vKeyTask, "KeyTask", 2048, NULL, 1, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(vMax30100Task, "Max30100Task", 4096, NULL, 1, NULL, tskNO_AFFINITY);
 }
