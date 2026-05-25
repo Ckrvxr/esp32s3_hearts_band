@@ -124,6 +124,44 @@ KeyEvent_t Key_Scan(uint8_t *out_key)
 
     return KEY_EVENT_NONE;
 }
+
+void Key_Event_Handler(KeyEvent_t evt, uint8_t key_id)
+{
+    switch (key_id) {
+        case KEY_IDX_UP:
+            switch (evt) {
+                case KEY_EVENT_CLICK:        ESP_LOGI(TAG, "UP CLICK"); break;
+                case KEY_EVENT_DOUBLE_CLICK: ESP_LOGI(TAG, "UP DOUBLE_CLICK"); break;
+                case KEY_EVENT_LONG_PRESS:   ESP_LOGI(TAG, "UP LONG_PRESS"); break;
+                default: break;
+            }
+            break;
+        case KEY_IDX_DOWN:
+            switch (evt) {
+                case KEY_EVENT_CLICK:        ESP_LOGI(TAG, "DOWN CLICK"); break;
+                case KEY_EVENT_DOUBLE_CLICK: ESP_LOGI(TAG, "DOWN DOUBLE_CLICK"); break;
+                case KEY_EVENT_LONG_PRESS:   ESP_LOGI(TAG, "DOWN LONG_PRESS"); break;
+                default: break;
+            }
+            break;
+        case KEY_IDX_CONFIRM:
+            switch (evt) {
+                case KEY_EVENT_CLICK:        ESP_LOGI(TAG, "CONFIRM CLICK"); break;
+                case KEY_EVENT_DOUBLE_CLICK: ESP_LOGI(TAG, "CONFIRM DOUBLE_CLICK"); break;
+                case KEY_EVENT_LONG_PRESS:   ESP_LOGI(TAG, "CONFIRM LONG_PRESS"); break;
+                default: break;
+            }
+            break;
+        case KEY_IDX_CANCEL:
+            switch (evt) {
+                case KEY_EVENT_CLICK:        ESP_LOGI(TAG, "CANCEL CLICK"); break;
+                case KEY_EVENT_DOUBLE_CLICK: ESP_LOGI(TAG, "CANCEL DOUBLE_CLICK"); break;
+                case KEY_EVENT_LONG_PRESS:   ESP_LOGI(TAG, "CANCEL LONG_PRESS"); break;
+                default: break;
+            }
+            break;
+    }
+}
 // --------------------------------------------------- Application -----------------------------------------------------
 
 // ------------------------------------------------------ Driver -------------------------------------------------------

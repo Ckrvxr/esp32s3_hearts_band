@@ -18,3 +18,4 @@ typedef enum {
 
 void Key_Init(void);
 KeyEvent_t Key_Scan(uint8_t *out_key);
+void Key_Event_Handler(KeyEvent_t evt, uint8_t key_id);
