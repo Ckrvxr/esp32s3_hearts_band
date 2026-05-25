@@ -1,13 +1,17 @@
+# PIN Mapping
 
-## Display SSD1315 IIC 
+## Display SSD1315 IIC
 
-SCL -> PIN 4
-SDA -> PIN 5
-
+| Signal | IO MUX Pin | Description |
+|--------|------------|-------------|
+| SSD1315 IIC SCL | PIN 4 | ESP32 IIC SCL |
+| SSD1315 IIC SDA | PIN 5 | ESP32 IIC SDA |
 
 ## Key
 
-Key 4 (UP) -> PIN 6
-Key 3 (DOWN) -> PIN 7
-Key 2 (CONFIRM) -> PIN 15
-Key 1 (CANCEL) -> PIN 16
+| Key | Function | IO MUX Pin | Description |
+|-----|----------|------------|-------------|
+| Key 4 | UP | PIN 6 | ESP32 GPIO |
+| Key 3 | DOWN | PIN 7 | ESP32 GPIO |
+| Key 2 | CONFIRM | PIN 15 | ESP32 GPIO |
+| Key 1 | CANCEL | PIN 16 | ESP32 GPIO |
