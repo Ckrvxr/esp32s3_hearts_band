@@ -57,7 +57,12 @@
 #define MAX30100_LED_CURR_46_8MA        0x0E
 #define MAX30100_LED_CURR_50MA          0x0F
 
+#define MAX30100_IR_TARGET_MIN          20000
+#define MAX30100_IR_TARGET_MAX          50000
+#define MAX30100_AC_ADJUST_INTERVAL_MS  500
+
 esp_err_t MAX30100_Init(void);
+void     MAX30100_AutoAdjustCurrent(void);
 esp_err_t MAX30100_ReadReg(uint8_t reg, uint8_t *val);
 esp_err_t MAX30100_WriteReg(uint8_t reg, uint8_t val);
 uint8_t   MAX30100_ReadFifo(uint16_t *ir, uint16_t *red);

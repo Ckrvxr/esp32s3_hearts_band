@@ -18,6 +18,9 @@ static const char *TAG = "MAX30100";
 static i2c_master_bus_handle_t bus_handle;
 static i2c_master_dev_handle_t dev_handle;
 
+static uint8_t current_ir_idx  = 0x07;
+static uint8_t current_red_idx = 0x04;
+
 esp_err_t MAX30100_Init(void)
 {
     i2c_master_bus_config_t bus_cfg = {
@@ -53,7 +56,7 @@ esp_err_t MAX30100_Init(void)
     uint8_t spo2_cfg = (MAX30100_SAMPRATE_100HZ << 2) | MAX30100_PW_1600US_16BITS | MAX30100_HIRES_EN;
     MAX30100_WriteReg(MAX30100_REG_SPO2_CONFIG, spo2_cfg);
 
-    MAX30100_WriteReg(MAX30100_REG_LED_CONFIG, (0x07 << 4) | 0x04);
+    MAX30100_WriteReg(MAX30100_REG_LED_CONFIG, (current_ir_idx << 4) | current_red_idx);
 
     MAX30100_WriteReg(MAX30100_REG_FIFO_WRITE_POINTER, 0);
     MAX30100_WriteReg(MAX30100_REG_FIFO_READ_POINTER, 0);
@@ -94,9 +97,41 @@ uint8_t MAX30100_ReadFifo(uint16_t *ir, uint16_t *red)
     for (int i = 0; i < available; i++) {
         ir[i]  = ((uint16_t)buf[i * 4]     << 8) | buf[i * 4 + 1];
         red[i] = ((uint16_t)buf[i * 4 + 2] << 8) | buf[i * 4 + 3];
-
-        ESP_LOGI(TAG, "IR=%5u  RED=%5u", ir[i], red[i]);
     }
 
     return available;
+}
+
+void MAX30100_AutoAdjustCurrent(void)
+{
+    uint8_t wr_ptr, rd_ptr;
+    if (MAX30100_ReadReg(MAX30100_REG_FIFO_WRITE_POINTER, &wr_ptr) != ESP_OK) return;
+    if (MAX30100_ReadReg(MAX30100_REG_FIFO_READ_POINTER, &rd_ptr) != ESP_OK) return;
+
+    uint8_t available = (wr_ptr - rd_ptr) & (MAX30100_FIFO_DEPTH - 1);
+    if (available == 0) return;
+
+    uint8_t buf[4];
+    uint8_t reg = MAX30100_REG_FIFO_DATA;
+    if (i2c_master_transmit_receive(dev_handle, &reg, 1, buf, 4, I2C_TIMEOUT_MS) != ESP_OK) {
+        return;
+    }
+
+    uint16_t ir = ((uint16_t)buf[0] << 8) | buf[1];
+
+    uint8_t changed = 0;
+    if (ir > MAX30100_IR_TARGET_MAX && current_ir_idx > 0) {
+        current_ir_idx--;
+        current_red_idx--;
+        changed = 1;
+    } else if (ir < MAX30100_IR_TARGET_MIN && current_ir_idx < 0x0F) {
+        current_ir_idx++;
+        current_red_idx++;
+        changed = 1;
+    }
+
+    if (changed) {
+        MAX30100_WriteReg(MAX30100_REG_LED_CONFIG, (current_ir_idx << 4) | current_red_idx);
+        ESP_LOGI(TAG, "Current adj: IR=0x%X RED=0x%X (IR raw=%u)", current_ir_idx, current_red_idx, ir);
+    }
 }

@@ -43,11 +43,23 @@ static void vKeyTask(void *pvParameters)
 static void vMax30100Task(void *pvParameters)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
+    TickType_t xLastAdj = xTaskGetTickCount();
     uint16_t ir[MAX30100_FIFO_DEPTH];
     uint16_t red[MAX30100_FIFO_DEPTH];
 
     while (1) {
-        MAX30100_ReadFifo(ir, red);
+        uint8_t n = MAX30100_ReadFifo(ir, red);
+        if (n > 0) {
+            for (int i = 0; i < n; i++) {
+                ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
+            }
+        }
+
+        if ((xTaskGetTickCount() - xLastAdj) >= pdMS_TO_TICKS(MAX30100_AC_ADJUST_INTERVAL_MS)) {
+            MAX30100_AutoAdjustCurrent();
+            xLastAdj = xTaskGetTickCount();
+        }
+
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(20));
     }
 }
