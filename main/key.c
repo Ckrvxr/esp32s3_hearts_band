@@ -1,7 +1,12 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "key.h"
 #include "display.h"
+
 // ------------------------------------------------------ Driver -------------------------------------------------------
 #define KEY_UP      16
 #define KEY_DOWN    15
@@ -10,15 +15,35 @@
 
 #define KEY_MASK    ((1ULL << KEY_UP) | (1ULL << KEY_DOWN) | (1ULL << KEY_CONFIRM) | (1ULL << KEY_CANCEL))
 
-#define DEBOUNCE_THRESHOLD  3
+#define DEBOUNCE_THRESHOLD     3
+#define LONG_PRESS_MS          1000
+#define DOUBLE_CLICK_WINDOW_MS 400
 
 static const char *TAG = "KEY";
 
-static const uint8_t key_gpios[] = {KEY_UP, KEY_DOWN, KEY_CONFIRM, KEY_CANCEL};
+typedef enum {
+    KEY_STATE_IDLE,
+    KEY_STATE_PRESSED,
+    KEY_STATE_WAIT_DOUBLE,
+    KEY_STATE_WAIT_RELEASE,
+} key_state_t;
 
-static uint8_t debounce_cnt[4];
-static uint8_t prev_state[4];
-static uint8_t curr_state[4];
+typedef struct {
+    uint8_t gpio;
+    uint8_t state;
+    uint8_t curr;
+    uint8_t prev;
+    uint8_t cnt;
+    uint8_t long_press_sent;
+    TickType_t tick;
+} key_ctx_t;
+
+static key_ctx_t key_ctx[4] = {
+    { .gpio = KEY_UP,      .state = KEY_STATE_IDLE, .curr = 0, .prev = 0, .cnt = 0, .long_press_sent = 0, .tick = 0 },
+    { .gpio = KEY_DOWN,    .state = KEY_STATE_IDLE, .curr = 0, .prev = 0, .cnt = 0, .long_press_sent = 0, .tick = 0 },
+    { .gpio = KEY_CONFIRM, .state = KEY_STATE_IDLE, .curr = 0, .prev = 0, .cnt = 0, .long_press_sent = 0, .tick = 0 },
+    { .gpio = KEY_CANCEL,  .state = KEY_STATE_IDLE, .curr = 0, .prev = 0, .cnt = 0, .long_press_sent = 0, .tick = 0 },
+};
 
 static void key_gpio_init(void)
 {
@@ -34,41 +59,70 @@ static void key_gpio_init(void)
 // ------------------------------------------------------ Driver -------------------------------------------------------
 
 // --------------------------------------------------- Application -----------------------------------------------------
-void Key_Scan(void)
+KeyEvent_t Key_Scan(uint8_t *out_key)
 {
     for (int i = 0; i < 4; i++) {
-        curr_state[i] = (gpio_get_level(key_gpios[i]) == 0) ? 1 : 0;
+        key_ctx_t *k = &key_ctx[i];
 
-        if (curr_state[i] == prev_state[i]) {
-            if (debounce_cnt[i] < DEBOUNCE_THRESHOLD) {
-                debounce_cnt[i]++;
-            }
+        k->curr = (gpio_get_level(k->gpio) == 0);
+
+        if (k->curr == k->prev) {
+            if (k->cnt < DEBOUNCE_THRESHOLD) k->cnt++;
         } else {
-            debounce_cnt[i] = 0;
+            k->cnt = 0;
         }
+        k->prev = k->curr;
 
-        prev_state[i] = curr_state[i];
+        if (k->cnt < DEBOUNCE_THRESHOLD) continue;
 
-        if (debounce_cnt[i] == DEBOUNCE_THRESHOLD && curr_state[i]) {
-            debounce_cnt[i]++;
+        TickType_t now = xTaskGetTickCount();
 
-            switch (key_gpios[i]) {
-                case KEY_UP:
-                    ESP_LOGI(TAG, "Dectect UP key being pressed.");
-                    break;
-                case KEY_DOWN:
-                    menu_index++;
-                    ESP_LOGI(TAG, "Dectect DOWN key being pressed.");
-                    break;
-                case KEY_CONFIRM:
-                    ESP_LOGI(TAG, "Dectect CONFIRM key being pressed.");
-                    break;
-                case KEY_CANCEL:
-                    ESP_LOGI(TAG, "Dectect CANCEL key being pressed.");
-                    break;
-            }
+        switch (k->state) {
+            case KEY_STATE_IDLE:
+                if (k->curr) {
+                    k->state = KEY_STATE_PRESSED;
+                    k->tick = now;
+                    k->long_press_sent = 0;
+                }
+                break;
+
+            case KEY_STATE_PRESSED:
+                if (!k->curr) {
+                    if (k->long_press_sent) {
+                        k->state = KEY_STATE_WAIT_RELEASE;
+                    } else {
+                        k->state = KEY_STATE_WAIT_DOUBLE;
+                        k->tick = now;
+                    }
+                } else if (!k->long_press_sent &&
+                           (now - k->tick) >= pdMS_TO_TICKS(LONG_PRESS_MS)) {
+                    k->long_press_sent = 1;
+                    *out_key = i;
+                    return KEY_EVENT_LONG_PRESS;
+                }
+                break;
+
+            case KEY_STATE_WAIT_DOUBLE:
+                if (k->curr) {
+                    k->state = KEY_STATE_WAIT_RELEASE;
+                    *out_key = i;
+                    return KEY_EVENT_DOUBLE_CLICK;
+                } else if ((now - k->tick) >= pdMS_TO_TICKS(DOUBLE_CLICK_WINDOW_MS)) {
+                    k->state = KEY_STATE_IDLE;
+                    *out_key = i;
+                    return KEY_EVENT_CLICK;
+                }
+                break;
+
+            case KEY_STATE_WAIT_RELEASE:
+                if (!k->curr) {
+                    k->state = KEY_STATE_IDLE;
+                }
+                break;
         }
     }
+
+    return KEY_EVENT_NONE;
 }
 // --------------------------------------------------- Application -----------------------------------------------------
 
@@ -76,13 +130,6 @@ void Key_Scan(void)
 void Key_Init(void)
 {
     key_gpio_init();
-
-    for (int i = 0; i < 4; i++) {
-        prev_state[i] = 0;
-        curr_state[i] = 0;
-        debounce_cnt[i] = 0;
-    }
-
     ESP_LOGI(TAG, "Key driver initialized");
 }
 // ------------------------------------------------------ Driver -------------------------------------------------------

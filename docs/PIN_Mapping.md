@@ -11,7 +11,7 @@
 
 | Key | Function | IO MUX Pin | Description |
 |-----|----------|------------|-------------|
-| Key 4 | UP | PIN 6 | ESP32 GPIO |
-| Key 3 | DOWN | PIN 7 | ESP32 GPIO |
-| Key 2 | CONFIRM | PIN 15 | ESP32 GPIO |
-| Key 1 | CANCEL | PIN 16 | ESP32 GPIO |
+| Key 1 | CANCEL | PIN 6 | ESP32 GPIO |
+| Key 2 | CONFIRM | PIN 7 | ESP32 GPIO |
+| Key 3 | DOWN | PIN 15 | ESP32 GPIO |
+| Key 4 | UP | PIN 16 | ESP32 GPIO |
