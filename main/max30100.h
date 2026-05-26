@@ -25,7 +25,8 @@
 #define MAX30100_MODE_RESET             (1 << 6)
 #define MAX30100_MODE_SHDN              (1 << 7)
 
-#define MAX30100_IDLE_THRESHOLD         100
+#define MAX30100_IDLE_THRESHOLD_IR      500
+#define MAX30100_IDLE_THRESHOLD_RED     2500
 #define MAX30100_IDLE_TIMEOUT_MS        5000
 #define MAX30100_WAKE_INTERVAL_MS       1000
 
@@ -70,12 +71,24 @@ extern MAX30100_State_t g_max30100_state;
 #define MAX30100_LED_CURR_46_8MA        0x0E
 #define MAX30100_LED_CURR_50MA          0x0F
 
-#define MAX30100_IR_TARGET_MIN          20000
-#define MAX30100_IR_TARGET_MAX          50000
-#define MAX30100_AC_ADJUST_INTERVAL_MS  500
+// === AGC 改进算法参数 ===
+#define MAX30100_AGC_WINDOW_SIZE        8
+#define MAX30100_AGC_TARGET_CENTER      35000
+#define MAX30100_AGC_DEAD_ZONE_LOW      25000
+#define MAX30100_AGC_DEAD_ZONE_HIGH     45000
+#define MAX30100_AGC_STEP_THRESHOLD     15000
+#define MAX30100_AGC_SAT_THRESHOLD      65500
+#define MAX30100_AGC_NO_SIGNAL_THR      100
+#define MAX30100_AGC_INIT_CURRENT       0x08
+#define MAX30100_AGC_MAIN_PERIOD_MS     500
+#define MAX30100_AGC_SUB_PERIOD_MS      1000
+#define MAX30100_AGC_RED_RATIO_LOW      0.8f
+#define MAX30100_AGC_RED_RATIO_HIGH     1.2f
 
 esp_err_t MAX30100_Init(void);
-void     MAX30100_AutoAdjustCurrent(void);
+void     MAX30100_AutoAdjust_Init(void);
+void     MAX30100_AutoAdjust_FeedSample(uint16_t ir);
+void     MAX30100_AutoAdjust_Run(float dcw_ir, float dcw_red, uint32_t now_ms);
 void     MAX30100_Sleep(void);
 void     MAX30100_Wake(void);
 esp_err_t MAX30100_ReadReg(uint8_t reg, uint8_t *val);

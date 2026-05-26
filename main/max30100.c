@@ -18,8 +18,13 @@ static const char *TAG = "MAX30100";
 static i2c_master_bus_handle_t bus_handle;
 static i2c_master_dev_handle_t dev_handle;
 
-static uint8_t current_ir_idx  = 0x07;
-static uint8_t current_red_idx = 0x04;
+static uint8_t current_ir_idx  = MAX30100_AGC_INIT_CURRENT;
+static uint8_t current_red_idx = MAX30100_AGC_INIT_CURRENT - 1;
+
+// AGC 内部状态
+static uint16_t agc_ir_buffer[MAX30100_AGC_WINDOW_SIZE];
+static uint8_t  agc_buffer_idx = 0;
+static uint8_t  agc_buffer_cnt = 0;
 
 MAX30100_State_t g_max30100_state = MAX30100_STATE_NORMAL;
 
@@ -104,37 +109,108 @@ uint8_t MAX30100_ReadFifo(uint16_t *ir, uint16_t *red)
     return available;
 }
 
-void MAX30100_AutoAdjustCurrent(void)
+void MAX30100_AutoAdjust_Init(void)
 {
-    uint8_t wr_ptr, rd_ptr;
-    if (MAX30100_ReadReg(MAX30100_REG_FIFO_WRITE_POINTER, &wr_ptr) != ESP_OK) return;
-    if (MAX30100_ReadReg(MAX30100_REG_FIFO_READ_POINTER, &rd_ptr) != ESP_OK) return;
+    current_ir_idx  = MAX30100_AGC_INIT_CURRENT;
+    current_red_idx = MAX30100_AGC_INIT_CURRENT - 1;
 
-    uint8_t available = (wr_ptr - rd_ptr) & (MAX30100_FIFO_DEPTH - 1);
-    if (available == 0) return;
+    agc_buffer_idx = 0;
+    agc_buffer_cnt = 0;
 
-    uint8_t buf[4];
-    uint8_t reg = MAX30100_REG_FIFO_DATA;
-    if (i2c_master_transmit_receive(dev_handle, &reg, 1, buf, 4, I2C_TIMEOUT_MS) != ESP_OK) {
+    MAX30100_WriteReg(MAX30100_REG_LED_CONFIG,
+                      (current_ir_idx << 4) | current_red_idx);
+    ESP_LOGI(TAG, "AGC init: IR=0x%X RED=0x%X",
+             current_ir_idx, current_red_idx);
+}
+
+void MAX30100_AutoAdjust_FeedSample(uint16_t ir)
+{
+    agc_ir_buffer[agc_buffer_idx] = ir;
+    agc_buffer_idx = (agc_buffer_idx + 1) % MAX30100_AGC_WINDOW_SIZE;
+    if (agc_buffer_cnt < MAX30100_AGC_WINDOW_SIZE)
+        agc_buffer_cnt++;
+}
+
+static uint16_t median_filter(uint16_t *buf, uint8_t cnt)
+{
+    uint16_t tmp[MAX30100_AGC_WINDOW_SIZE];
+    for (uint8_t i = 0; i < cnt; i++)
+        tmp[i] = buf[i];
+
+    for (uint8_t i = 1; i < cnt; i++) {
+        uint16_t key = tmp[i];
+        int8_t j = i - 1;
+        while (j >= 0 && tmp[j] > key) {
+            tmp[j + 1] = tmp[j];
+            j--;
+        }
+        tmp[j + 1] = key;
+    }
+    return tmp[cnt / 2];
+}
+
+void MAX30100_AutoAdjust_Run(float dcw_ir, float dcw_red, uint32_t now_ms)
+{
+    static uint32_t last_main_ms = 0;
+    static uint32_t last_sub_ms  = 0;
+
+    if (agc_buffer_cnt == 0) return;
+
+    // ── 主环: IR 跟踪 @ 500ms ──
+    if (now_ms - last_main_ms < MAX30100_AGC_MAIN_PERIOD_MS)
         return;
+    last_main_ms = now_ms;
+
+    uint16_t ir_med = median_filter(agc_ir_buffer, agc_buffer_cnt);
+
+    if (ir_med < MAX30100_AGC_NO_SIGNAL_THR)
+        return;
+
+    if (ir_med >= MAX30100_AGC_SAT_THRESHOLD) {
+        current_ir_idx = (current_ir_idx >= 3)
+                         ? (current_ir_idx - 3) : 0;
+        goto write_led;
     }
 
-    uint16_t ir = ((uint16_t)buf[0] << 8) | buf[1];
+    int32_t e = (int32_t)ir_med - MAX30100_AGC_TARGET_CENTER;
+    int8_t step = 0;
 
-    uint8_t changed = 0;
-    if (ir > MAX30100_IR_TARGET_MAX && current_ir_idx > 0) {
-        current_ir_idx--;
-        current_red_idx--;
-        changed = 1;
-    } else if (ir < MAX30100_IR_TARGET_MIN && current_ir_idx < 0x0F) {
-        current_ir_idx++;
-        current_red_idx++;
-        changed = 1;
+    if      (e < -(int32_t)MAX30100_AGC_STEP_THRESHOLD) step = 2;
+    else if (e < -(int32_t)MAX30100_AGC_DEAD_ZONE_LOW)  step = 1;
+    else if (e <= (int32_t)MAX30100_AGC_DEAD_ZONE_HIGH) step = 0;
+    else if (e <= (int32_t)MAX30100_AGC_STEP_THRESHOLD) step = -1;
+    else                                                 step = -2;
+
+    if (step != 0) {
+        int16_t new_ir = (int16_t)current_ir_idx + step;
+        if (new_ir < 0)  new_ir = 0;
+        if (new_ir > 15) new_ir = 15;
+        current_ir_idx = (uint8_t)new_ir;
     }
 
-    if (changed) {
-        MAX30100_WriteReg(MAX30100_REG_LED_CONFIG, (current_ir_idx << 4) | current_red_idx);
-        ESP_LOGI(TAG, "Current adj: IR=0x%X RED=0x%X (IR raw=%u)", current_ir_idx, current_red_idx, ir);
+write_led:
+    MAX30100_WriteReg(MAX30100_REG_LED_CONFIG,
+                      (current_ir_idx << 4) | current_red_idx);
+
+    // ── 副环: RED 平衡 @ 1000ms ──
+    if (now_ms - last_sub_ms < MAX30100_AGC_SUB_PERIOD_MS)
+        return;
+    last_sub_ms = now_ms;
+
+    if (dcw_ir < 1.0f) return;
+
+    float ratio = dcw_red / dcw_ir;
+    int8_t red_step = 0;
+    if      (ratio < MAX30100_AGC_RED_RATIO_LOW)  red_step = 1;
+    else if (ratio > MAX30100_AGC_RED_RATIO_HIGH) red_step = -1;
+
+    if (red_step != 0) {
+        int16_t new_red = (int16_t)current_red_idx + red_step;
+        if (new_red < 0)  new_red = 0;
+        if (new_red > 15) new_red = 15;
+        current_red_idx = (uint8_t)new_red;
+        MAX30100_WriteReg(MAX30100_REG_LED_CONFIG,
+                          (current_ir_idx << 4) | current_red_idx);
     }
 }
 

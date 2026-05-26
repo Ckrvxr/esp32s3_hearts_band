@@ -43,13 +43,15 @@ static void vKeyTask(void *pvParameters)
 static void vMax30100Task(void *pvParameters)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    TickType_t xLastAdj = xTaskGetTickCount();
     TickType_t xIdleStart = 0;
     uint16_t ir[MAX30100_FIFO_DEPTH];
     uint16_t red[MAX30100_FIFO_DEPTH];
 
+    MAX30100_AutoAdjust_Init();
+
     while (1) {
         TickType_t now = xTaskGetTickCount();
+        uint32_t now_ms = now * portTICK_PERIOD_MS;
 
         switch (g_max30100_state) {
             case MAX30100_STATE_NORMAL:
@@ -58,7 +60,8 @@ static void vMax30100Task(void *pvParameters)
                 if (n > 0) {
                     uint8_t no_signal = 1;
                     for (int i = 0; i < n; i++) {
-                        if (ir[i] >= MAX30100_IDLE_THRESHOLD || red[i] >= MAX30100_IDLE_THRESHOLD) {
+                        MAX30100_AutoAdjust_FeedSample(ir[i]);
+                        if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
                             no_signal = 0;
                         }
                         ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
@@ -69,10 +72,7 @@ static void vMax30100Task(void *pvParameters)
                     }
                 }
 
-                if ((now - xLastAdj) >= pdMS_TO_TICKS(MAX30100_AC_ADJUST_INTERVAL_MS)) {
-                    MAX30100_AutoAdjustCurrent();
-                    xLastAdj = now;
-                }
+                MAX30100_AutoAdjust_Run(0, 0, now_ms);
                 break;
             }
 
@@ -82,7 +82,7 @@ static void vMax30100Task(void *pvParameters)
                 if (n > 0) {
                     uint8_t no_signal = 1;
                     for (int i = 0; i < n; i++) {
-                        if (ir[i] >= MAX30100_IDLE_THRESHOLD || red[i] >= MAX30100_IDLE_THRESHOLD) {
+                        if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
                             no_signal = 0;
                         }
                         ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
@@ -108,14 +108,13 @@ static void vMax30100Task(void *pvParameters)
                     if (n > 0) {
                         uint8_t signal_back = 0;
                         for (int i = 0; i < n; i++) {
-                            if (ir[i] >= MAX30100_IDLE_THRESHOLD || red[i] >= MAX30100_IDLE_THRESHOLD) {
+                            if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
                                 signal_back = 1;
                             }
                             ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
                         }
                         if (signal_back) {
                             g_max30100_state = MAX30100_STATE_NORMAL;
-                            xLastAdj = xTaskGetTickCount();
                         } else {
                             MAX30100_Sleep();
                         }
