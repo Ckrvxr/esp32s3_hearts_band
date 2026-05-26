@@ -9,7 +9,6 @@ set(COMPONENT_SRCS
     "ppg.c"
     "ppg_v1.c"
     "ppg_v2.c"
-    "sqi.c"
     ${U8G2_SRCS}
 )
 

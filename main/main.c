@@ -12,12 +12,10 @@
 #include "max30100.h"
 #include "ppg.h"
 #include "ppg_v2.h"
-#include "sqi.h"
 
 static void MainTask(void *pvParameters)
 {
     while (1) {
-        // ESP_LOGI(TAG, "System running.");
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
@@ -49,7 +47,6 @@ static void vPpgTask(void *pvParameters)
 {
     PPG_Init();
     PPG_V2_Init();
-    SQI_Init();
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xIdleStart = 0;
     uint16_t ir[MAX30100_FIFO_DEPTH];
@@ -66,17 +63,12 @@ static void vPpgTask(void *pvParameters)
             {
                 uint8_t n = MAX30100_ReadFifo(ir, red);
                 for (int i = 0; i < n; i++) {
-                    SQI_FeedSample(ir[i], red[i]);
-
                     MAX30100_AutoAdjust_FeedSample(ir[i]);
                     PPG_PushSample(ir[i], red[i]);
-
-                    if (SQI_HasSignal()) {
-                        PPG_V2_Process(ir[i], red[i]);
-                    }
+                    PPG_V2_Process(ir[i], red[i]);
                 }
 
-                if (!SQI_HasSignal()) {
+                if (!PPG_V2_HasContact()) {
                     if (!xIdleStart) xIdleStart = now;
                     if ((now - xIdleStart) >= pdMS_TO_TICKS(1000)) {
                         g_max30100_state = MAX30100_STATE_IDLE;
@@ -94,11 +86,11 @@ static void vPpgTask(void *pvParameters)
             {
                 uint8_t n = MAX30100_ReadFifo(ir, red);
                 for (int i = 0; i < n; i++) {
-                    SQI_FeedSample(ir[i], red[i]);
                     PPG_PushSample(ir[i], red[i]);
+                    PPG_V2_Process(ir[i], red[i]);
                 }
 
-                if (SQI_HasSignal()) {
+                if (PPG_V2_HasContact()) {
                     g_max30100_state = MAX30100_STATE_NORMAL;
                     break;
                 }
@@ -123,10 +115,10 @@ static void vPpgTask(void *pvParameters)
 
                     uint8_t n = MAX30100_ReadFifo(ir, red);
                     for (int i = 0; i < n; i++) {
-                        SQI_FeedSample(ir[i], red[i]);
+                        PPG_V2_Process(ir[i], red[i]);
                     }
 
-                    if (SQI_HasSignal()) {
+                    if (PPG_V2_HasContact()) {
                         Display_Sleep(false);
                         g_max30100_state = MAX30100_STATE_NORMAL;
                     } else {

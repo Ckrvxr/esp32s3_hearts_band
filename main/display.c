@@ -12,8 +12,6 @@
 
 #include "display.h"
 #include "ppg.h"
-#include "ppg_v2.h"
-#include "sqi.h"
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
 #define I2C_MASTER_SCL      4
@@ -215,7 +213,8 @@ static void Display_Draw_PpgRaw6sAvg(void)
             ir_sum += ppg_ir_buf[idx];
             re_sum += ppg_red_buf[idx];
             n_win++;
-            if (ppg_beat_buf[idx]) beat = 1;
+            uint8_t b = ppg_beat_buf[idx];
+            if (b) beat = b;
         }
         xSemaphoreGive(ppg_mutex);
 
@@ -245,8 +244,12 @@ static void Display_Draw_PpgRaw6sAvg(void)
         prev_red_y = y_re;
         prev_x = x;
 
-        if (beat) {
+        if (beat == 1) {
             u8g2_DrawVLine(&u8g2, x, PPG_PLOT_Y, PPG_PLOT_H - 1);
+        } else if (beat == 2) {
+            int seg = (PPG_PLOT_H - 1) / 3;
+            u8g2_DrawVLine(&u8g2, x, PPG_PLOT_Y, seg);
+            u8g2_DrawVLine(&u8g2, x, PPG_PLOT_Y + PPG_PLOT_H - 1 - seg, seg);
         }
     }
 
@@ -317,7 +320,7 @@ static void Display_Draw_PpgRaw1s(void)
         xSemaphoreTake(ppg_mutex, portMAX_DELAY);
         uint16_t ir_v = ppg_ir_buf[idx];
         uint16_t re_v = ppg_red_buf[idx];
-        if (ppg_beat_buf[idx]) beat = 1;
+        beat = ppg_beat_buf[idx];
         xSemaphoreGive(ppg_mutex);
 
         int y_ir = R1S_PLOT_Y + R1S_PLOT_H - 1 -
@@ -341,8 +344,12 @@ static void Display_Draw_PpgRaw1s(void)
         prev_red_y = y_re;
         prev_x = x;
 
-        if (beat) {
+        if (beat == 1) {
             u8g2_DrawVLine(&u8g2, x, R1S_PLOT_Y, R1S_PLOT_H - 1);
+        } else if (beat == 2) {
+            int seg = (R1S_PLOT_H - 1) / 3;
+            u8g2_DrawVLine(&u8g2, x, R1S_PLOT_Y, seg);
+            u8g2_DrawVLine(&u8g2, x, R1S_PLOT_Y + R1S_PLOT_H - 1 - seg, seg);
         }
     }
 
@@ -380,7 +387,7 @@ static void Display_Draw_Processed(void)
 
     if (pcount < 2) {
         char buf[32];
-        snprintf(buf, sizeof(buf), "HR:%3u  SpO2:%3u%%", ppg_hr, ppg_spo2);
+        snprintf(buf, sizeof(buf), "HR:%3u", ppg_hr);
         u8g2_DrawStr(&u8g2, 8, 62, buf);
         return;
     }
@@ -439,79 +446,131 @@ static void Display_Draw_Processed(void)
         uint8_t beat = 0;
         xSemaphoreTake(ppg_mutex, portMAX_DELAY);
         for (uint16_t j = lo; j < hi && !beat; j++) {
-            if (ppg_beat_buf[(pstart + j) % PPG_SAMPLE_BUF]) beat = 1;
+            beat = ppg_beat_buf[(pstart + j) % PPG_SAMPLE_BUF];
         }
         xSemaphoreGive(ppg_mutex);
-        if (beat) {
+        if (beat == 1) {
             u8g2_DrawVLine(&u8g2, PDC_PLOT_X + col, PDC_PLOT_Y, PDC_PLOT_H - 1);
+        } else if (beat == 2) {
+            int seg = (PDC_PLOT_H - 1) / 3;
+            u8g2_DrawVLine(&u8g2, PDC_PLOT_X + col, PDC_PLOT_Y, seg);
+            u8g2_DrawVLine(&u8g2, PDC_PLOT_X + col, PDC_PLOT_Y + PDC_PLOT_H - 1 - seg, seg);
         }
     }
 
     char buf[32];
-    snprintf(buf, sizeof(buf), "HR:%3u  SpO2:%3u%%", ppg_hr, ppg_spo2);
+    snprintf(buf, sizeof(buf), "HR:%3u", ppg_hr);
     u8g2_DrawStr(&u8g2, 8, 62, buf);
 }
 
 // ============================================================
-// FFT Spectrum
-// ============================================================
-static void Display_Draw_FftSpectrum(void)
+// ── 心率大字视图 ──
+static void Display_Draw_HR(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(&u8g2, 8, 10, "FFT SPECTRUM");
+    u8g2_DrawStr(&u8g2, 8, 10, "HEART RATE");
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
-#define FFT_PLOT_X     4
-#define FFT_PLOT_Y     18
-#define FFT_PLOT_W     120
-#define FFT_PLOT_H     38
+#define HR_PLOT_X     4
+#define HR_PLOT_Y     18
+#define HR_PLOT_W     120
+#define HR_PLOT_H     12
 
-    u8g2_DrawFrame(&u8g2, FFT_PLOT_X - 1, FFT_PLOT_Y - 1, FFT_PLOT_W + 2, FFT_PLOT_H + 2);
-
-    for (int gy = 1; gy < 3; gy++) {
-        int y = FFT_PLOT_Y + (FFT_PLOT_H * gy) / 3;
-        u8g2_DrawHLine(&u8g2, FFT_PLOT_X, y, FFT_PLOT_W);
+    uint16_t pcount, phead;
+    {
+        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+        pcount = ppg_buf_count;
+        phead = ppg_buf_head;
+        xSemaphoreGive(ppg_mutex);
     }
 
-    for (int col = 0; col < FFT_PLOT_W; col++) {
-        float lo = (float)col * (float)PPG_SPECTRUM_BINS / (float)FFT_PLOT_W;
-        float hi = (float)(col + 1) * (float)PPG_SPECTRUM_BINS / (float)FFT_PLOT_W;
-        int k_lo = (int)lo;
-        int k_hi = (int)ceilf(hi);
-        if (k_hi > PPG_SPECTRUM_BINS) k_hi = PPG_SPECTRUM_BINS;
+    if (ppg_hr > 0 && ppg_hr <= 240 && pcount >= 2) {
+        u8g2_DrawFrame(&u8g2, HR_PLOT_X - 1, HR_PLOT_Y - 1, HR_PLOT_W + 2, HR_PLOT_H + 2);
 
-        float max_dB = -40.0f;
-        for (int k = k_lo; k < k_hi; k++) {
-            if (ppg_spectrum_dB[k] > max_dB) max_dB = ppg_spectrum_dB[k];
+        float p_min = 1e10f, p_max = -1e10f;
+        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+        for (uint16_t i = 0; i < pcount; i++) {
+            float v = ppg_proc_buf[(phead + PPG_SAMPLE_BUF - pcount + i) % PPG_SAMPLE_BUF];
+            if (v < p_min) p_min = v;
+            if (v > p_max) p_max = v;
+        }
+        xSemaphoreGive(ppg_mutex);
+
+        float p_abs = fmaxf(fabsf(p_min), fabsf(p_max));
+        if (p_abs < 1.0f) p_abs = 1.0f;
+        float scale = (HR_PLOT_H / 2.0f - 1.0f) / p_abs;
+        int y_center = HR_PLOT_Y + HR_PLOT_H / 2;
+
+        uint16_t pstart = (pcount <= HR_PLOT_W) ? 0 : (phead + PPG_SAMPLE_BUF - pcount) % PPG_SAMPLE_BUF;
+        uint16_t pdec = (pcount + HR_PLOT_W - 1) / HR_PLOT_W;
+
+        // Waveform
+        for (int col = 0; col < HR_PLOT_W; col++) {
+            uint16_t lo = col * pdec;
+            uint16_t hi = lo + pdec;
+            if (hi > pcount) hi = pcount;
+            if (lo >= pcount) break;
+            int x = HR_PLOT_X + col;
+
+            float f_lo = 1e10f, f_hi = -1e10f;
+            xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+            for (uint16_t j = lo; j < hi; j++) {
+                float v = ppg_proc_buf[(pstart + j) % PPG_SAMPLE_BUF];
+                if (v < f_lo) f_lo = v;
+                if (v > f_hi) f_hi = v;
+            }
+            xSemaphoreGive(ppg_mutex);
+
+            int y_lo = y_center - (int)(f_hi * scale);
+            int y_hi = y_center - (int)(f_lo * scale);
+            if (y_lo < HR_PLOT_Y) y_lo = HR_PLOT_Y;
+            if (y_hi >= HR_PLOT_Y + HR_PLOT_H) y_hi = HR_PLOT_Y + HR_PLOT_H - 1;
+            if (y_lo != y_hi) {
+                u8g2_DrawVLine(&u8g2, x, y_lo, y_hi - y_lo + 1);
+            } else {
+                u8g2_DrawPixel(&u8g2, x, y_lo);
+            }
         }
 
-        int bar_h = (int)((max_dB + 40.0f) / 40.0f * (float)(FFT_PLOT_H - 1));
-        if (bar_h < 0) bar_h = 0;
-        if (bar_h > FFT_PLOT_H - 1) bar_h = FFT_PLOT_H - 1;
-        int y0 = FFT_PLOT_Y + FFT_PLOT_H - 1 - bar_h;
+        // Beat markers
+        for (int col = 0; col < HR_PLOT_W; col++) {
+            uint16_t lo = col * pdec;
+            uint16_t hi = lo + pdec;
+            if (hi > pcount) hi = pcount;
+            if (lo >= pcount) break;
+            uint8_t beat = 0;
+            xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+            for (uint16_t j = lo; j < hi && !beat; j++) {
+                beat = ppg_beat_buf[(pstart + j) % PPG_SAMPLE_BUF];
+            }
+            xSemaphoreGive(ppg_mutex);
+            if (beat == 1) {
+                u8g2_DrawVLine(&u8g2, HR_PLOT_X + col, HR_PLOT_Y, HR_PLOT_H - 1);
+            } else if (beat == 2) {
+                int seg = (HR_PLOT_H - 1) / 3;
+                u8g2_DrawVLine(&u8g2, HR_PLOT_X + col, HR_PLOT_Y, seg);
+                u8g2_DrawVLine(&u8g2, HR_PLOT_X + col, HR_PLOT_Y + HR_PLOT_H - 1 - seg, seg);
+            }
+        }
 
-        u8g2_DrawVLine(&u8g2, FFT_PLOT_X + col, y0, bar_h + 1);
+        // HR number
+        char buf[16];
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
+        snprintf(buf, sizeof(buf), "%u", ppg_hr);
+        int x = (128 - u8g2_GetStrWidth(&u8g2, buf)) / 2;
+        u8g2_DrawStr(&u8g2, x, 48, buf);
+
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+        u8g2_DrawStr(&u8g2, 52, 62, "BPM");
+    } else {
+        char buf[16];
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
+        u8g2_DrawStr(&u8g2, 52, 42, "--");
+
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+        int x = (128 - u8g2_GetStrWidth(&u8g2, "NO SIGNAL")) / 2;
+        u8g2_DrawStr(&u8g2, x, 58, "NO SIGNAL");
     }
-
-    int peak_col = (int)((float)ppg_peak_bin * (float)FFT_PLOT_W / (float)PPG_SPECTRUM_BINS);
-    if (peak_col >= 0 && peak_col < FFT_PLOT_W) {
-        int x = FFT_PLOT_X + peak_col;
-        u8g2_DrawPixel(&u8g2, x, FFT_PLOT_Y - 2);
-        u8g2_DrawPixel(&u8g2, x - 1, FFT_PLOT_Y - 2);
-        u8g2_DrawPixel(&u8g2, x + 1, FFT_PLOT_Y - 2);
-        u8g2_DrawPixel(&u8g2, x, FFT_PLOT_Y - 1);
-    }
-
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    char buf[32];
-    snprintf(buf, sizeof(buf), "PK:%.1fHz", (double)ppg_peak_freq);
-    u8g2_DrawStr(&u8g2, FFT_PLOT_X + FFT_PLOT_W - 56, FFT_PLOT_Y + 9, buf);
-
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(&u8g2, FFT_PLOT_X - 2, FFT_PLOT_Y + FFT_PLOT_H + 8, "0");
-    u8g2_DrawStr(&u8g2, FFT_PLOT_X + FFT_PLOT_W / 2 - 4, FFT_PLOT_Y + FFT_PLOT_H + 8, "10");
-    u8g2_DrawStr(&u8g2, FFT_PLOT_X + FFT_PLOT_W - 12, FFT_PLOT_Y + FFT_PLOT_H + 8, "20Hz");
-
 }
 
 // --------------------------------------------------- Timer Pages -----------------------------------------------------
@@ -581,8 +640,8 @@ void Display_Refresh(void)
         case STATE_PPG_PROCESSED:
             Display_Draw_Processed();
             break;
-        case STATE_PPG_FFT:
-            Display_Draw_FftSpectrum();
+        case STATE_PPG_HR:
+            Display_Draw_HR();
             break;
         case STATE_TIMER_SET:
             Display_Draw_TimerSet();
