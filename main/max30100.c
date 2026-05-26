@@ -221,7 +221,7 @@ void MAX30100_Sleep(void)
     mode |= MAX30100_MODE_SHDN;
     MAX30100_WriteReg(MAX30100_REG_MODE_CONFIG, mode);
     g_max30100_state = MAX30100_STATE_SLEEPING;
-    ESP_LOGI(TAG, "Sleeping");
+    // ESP_LOGI(TAG, "Sleeping");
 }
 
 void MAX30100_Wake(void)
@@ -231,5 +231,5 @@ void MAX30100_Wake(void)
     MAX30100_WriteReg(MAX30100_REG_FIFO_WRITE_POINTER, 0);
     MAX30100_WriteReg(MAX30100_REG_FIFO_READ_POINTER, 0);
     g_max30100_state = MAX30100_STATE_NORMAL;
-    ESP_LOGI(TAG, "Woken");
+    // ESP_LOGI(TAG, "Woken");
 }

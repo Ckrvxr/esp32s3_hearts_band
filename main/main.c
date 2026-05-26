@@ -8,6 +8,7 @@
 #include "display.h"
 #include "key.h"
 #include "max30100.h"
+#include "ble_driver.h"
 #include "ppg.h"
 #include "ppg_v2.h"
 
@@ -148,4 +149,6 @@ void app_main(void)
     xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 6144, NULL, 2, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vKeyTask, "KeyTask", 2048, NULL, 1, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vPpgTask, "PpgTask", 4096, NULL, 1, NULL, tskNO_AFFINITY);
+
+    Ble_Driver_Init();
 }

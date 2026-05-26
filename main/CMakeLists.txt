@@ -5,6 +5,7 @@ set(COMPONENT_SRCS
     "display.c"
     "key.c"
     "max30100.c"
+    "ble_driver.c"
     "ppg.c"
     "ppg_v1.c"
     "ppg_v2.c"
@@ -16,4 +17,6 @@ idf_component_register(
     INCLUDE_DIRS
         "."
         "u8g2-master/csrc"
+    REQUIRES bt nvs_flash esp_driver_gpio
+    PRIV_REQUIRES esp_driver_i2c
 )

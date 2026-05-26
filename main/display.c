@@ -526,8 +526,52 @@ static void Display_Draw_FftSpectrum(void)
 
 }
 
-// --------------------------------------------------- Application -----------------------------------------------------
+// --------------------------------------------------- Timer Pages -----------------------------------------------------
+static void Display_Draw_TimerSet(void)
+{
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+    u8g2_DrawStr(&u8g2, 8, 10, "Timer Set");
+    Display_Draw_LiveAnimation(108, 2);
+    u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
+    u8g2_DrawStr(&u8g2, 16, 36, "OK!");
+
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+    u8g2_DrawStr(&u8g2, 28, 52, "Timer: 30min");
+}
+
+static void Display_Draw_TimerRunning(void)
+{
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+    u8g2_DrawStr(&u8g2, 8, 10, "Countdown");
+    Display_Draw_LiveAnimation(108, 2);
+    u8g2_DrawHLine(&u8g2, 0, 14, 128);
+
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
+    u8g2_DrawStr(&u8g2, 10, 42, "00:00");
+
+    u8g2_DrawFrame(&u8g2, 4, 48, 120, 8);
+    u8g2_DrawBox(&u8g2, 5, 49, 118, 6);
+}
+
+static void Display_Draw_TimerDone(void)
+{
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+
+    if ((frame_count / 8) % 2) {
+        u8g2_DrawStr(&u8g2, 32, 10, "TIME'S UP");
+        Display_Draw_LiveAnimation(108, 2);
+        u8g2_DrawHLine(&u8g2, 0, 14, 128);
+    }
+
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB24_tr);
+    u8g2_DrawStr(&u8g2, 28, 46, "!!!");
+
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+    u8g2_DrawStr(&u8g2, 36, 60, "Time Over");
+}
+// --------------------------------------------------- Timer Pages -----------------------------------------------------
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
 void Display_Refresh(void)
@@ -549,6 +593,15 @@ void Display_Refresh(void)
             break;
         case STATE_PPG_FFT:
             Display_Draw_FftSpectrum();
+            break;
+        case STATE_TIMER_SET:
+            Display_Draw_TimerSet();
+            break;
+        case STATE_TIMER_RUNNING:
+            Display_Draw_TimerRunning();
+            break;
+        case STATE_TIMER_DONE:
+            Display_Draw_TimerDone();
             break;
         default:
             break;

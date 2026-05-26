@@ -8,6 +8,9 @@ typedef enum {
     STATE_PPG_RAW_1S,
     STATE_PPG_PROCESSED,
     STATE_PPG_FFT,
+    STATE_TIMER_SET,
+    STATE_TIMER_RUNNING,
+    STATE_TIMER_DONE,
     STATE_COUNT,
 } DisplayState_t;
 
