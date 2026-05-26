@@ -4,7 +4,9 @@
 
 typedef enum {
     STATE_MAIN_SCREEN,
-    STATE_PPG_RAW,
+    STATE_PPG_RAW_6S_AVG,
+    STATE_PPG_RAW_1S,
+    STATE_PPG_PROCESSED,
     STATE_COUNT,
 } DisplayState_t;
 

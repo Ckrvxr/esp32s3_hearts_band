@@ -1,4 +1,5 @@
 #include <string.h>
+#include <math.h>
 
 #include "esp_log.h"
 #include "driver/i2c_master.h"
@@ -151,10 +152,10 @@ static void Display_Draw_MainScreen(void)
     u8g2_DrawStr(&u8g2, 8, 32, "Hello World !");
 }
 
-static void Display_Draw_PpgRaw(void)
+static void Display_Draw_PpgRaw6sAvg(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(&u8g2, 8, 10, "PPG RAW");
+    u8g2_DrawStr(&u8g2, 8, 10, "PPG RAW (6s, Avg)");
     Display_Draw_LiveAnimation(108, 2);
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
@@ -170,37 +171,39 @@ static void Display_Draw_PpgRaw(void)
         u8g2_DrawHLine(&u8g2, PPG_PLOT_X, y, PPG_PLOT_W);
     }
 
-    uint16_t ir_copy[PPG_SAMPLE_BUF];
-    uint16_t red_copy[PPG_SAMPLE_BUF];
-    uint16_t count;
-    uint16_t head;
+    uint16_t count, head;
+    uint16_t ir_min = 0xFFFF, ir_max = 0;
+    uint16_t red_min = 0xFFFF, red_max = 0;
+    uint16_t last_ir = 0, last_red = 0;
     {
         xSemaphoreTake(ppg_mutex, portMAX_DELAY);
         count = ppg_buf_count;
         head = ppg_buf_head;
-        memcpy(ir_copy, ppg_ir_buf, sizeof(ppg_ir_buf));
-        memcpy(red_copy, ppg_red_buf, sizeof(ppg_red_buf));
+        for (uint16_t i = 0; i < count; i++) {
+            uint16_t idx = (head + PPG_SAMPLE_BUF - count + i) % PPG_SAMPLE_BUF;
+            uint16_t v = ppg_ir_buf[idx];
+            if (v < ir_min) ir_min = v;
+            if (v > ir_max) ir_max = v;
+            v = ppg_red_buf[idx];
+            if (v < red_min) red_min = v;
+            if (v > red_max) red_max = v;
+            last_ir = ppg_ir_buf[idx];
+            last_red = ppg_red_buf[idx];
+        }
         xSemaphoreGive(ppg_mutex);
     }
 
     if (count < 2) return;
-
-    uint16_t ir_min = 0xFFFF, ir_max = 0;
-    uint16_t red_min = 0xFFFF, red_max = 0;
-    for (uint16_t i = 0; i < count; i++) {
-        uint16_t v = ir_copy[i];
-        if (v < ir_min) ir_min = v;
-        if (v > ir_max) ir_max = v;
-        v = red_copy[i];
-        if (v < red_min) red_min = v;
-        if (v > red_max) red_max = v;
-    }
     if (ir_max == ir_min) ir_max = ir_min + 1;
     if (red_max == red_min) red_max = red_min + 1;
 
-    uint16_t start = (count <= PPG_PLOT_W) ? 0 : (head + PPG_SAMPLE_BUF - PPG_PLOT_W) % PPG_SAMPLE_BUF;
-    uint16_t plot_n = (count < PPG_PLOT_W) ? count : PPG_PLOT_W;
+    uint16_t start = (count <= PPG_PLOT_W) ? 0 : (head + PPG_SAMPLE_BUF - count) % PPG_SAMPLE_BUF;
+    uint16_t plot_n = count;
     uint16_t decimation = (plot_n + PPG_PLOT_W - 1) / PPG_PLOT_W;
+
+    int prev_ir_y = -1;
+    int prev_red_y = -1;
+    int prev_x = -1;
 
     for (int col = 0; col < PPG_PLOT_W; col++) {
         uint16_t lo = col * decimation;
@@ -209,45 +212,254 @@ static void Display_Draw_PpgRaw(void)
         if (lo >= plot_n) break;
 
         int x = PPG_PLOT_X + col;
+        uint32_t ir_sum = 0;
+        uint32_t re_sum = 0;
+        uint16_t n_win = 0;
+        uint8_t beat = 0;
 
-        uint16_t ir_lo = 0xFFFF, ir_hi = 0;
-        uint16_t re_lo = 0xFFFF, re_hi = 0;
+        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
         for (uint16_t j = lo; j < hi; j++) {
             uint16_t idx = (start + j) % PPG_SAMPLE_BUF;
-            uint16_t v = ir_copy[idx];
-            if (v < ir_lo) ir_lo = v;
-            if (v > ir_hi) ir_hi = v;
-            v = red_copy[idx];
-            if (v < re_lo) re_lo = v;
-            if (v > re_hi) re_hi = v;
+            ir_sum += ppg_ir_buf[idx];
+            re_sum += ppg_red_buf[idx];
+            n_win++;
+            if (ppg_beat_buf[idx]) beat = 1;
         }
+        xSemaphoreGive(ppg_mutex);
 
-        int y_ir_lo = PPG_PLOT_Y + PPG_PLOT_H - 1 -
-                      (uint32_t)(ir_lo - ir_min) * (PPG_PLOT_H - 1) / (ir_max - ir_min);
-        int y_ir_hi = PPG_PLOT_Y + PPG_PLOT_H - 1 -
-                      (uint32_t)(ir_hi - ir_min) * (PPG_PLOT_H - 1) / (ir_max - ir_min);
-        if (y_ir_lo != y_ir_hi) {
-            u8g2_DrawVLine(&u8g2, x, y_ir_lo, y_ir_hi - y_ir_lo + 1);
+        if (n_win == 0) continue;
+
+        uint16_t ir_mean = ir_sum / n_win;
+        uint16_t re_mean = re_sum / n_win;
+
+        int y_ir = PPG_PLOT_Y + PPG_PLOT_H - 1 -
+                   (uint32_t)(ir_mean - ir_min) * (PPG_PLOT_H - 1) / (ir_max - ir_min);
+        int y_re = PPG_PLOT_Y + PPG_PLOT_H - 1 -
+                   (uint32_t)(re_mean - red_min) * (PPG_PLOT_H - 1) / (red_max - red_min);
+
+        if (prev_ir_y >= 0 && prev_x >= 0) {
+            u8g2_DrawLine(&u8g2, prev_x, prev_ir_y, x, y_ir);
         } else {
-            u8g2_DrawPixel(&u8g2, x, y_ir_lo);
+            u8g2_DrawPixel(&u8g2, x, y_ir);
         }
+        prev_ir_y = y_ir;
 
-        int y_re_lo = PPG_PLOT_Y + PPG_PLOT_H - 1 -
-                      (uint32_t)(re_lo - red_min) * (PPG_PLOT_H - 1) / (red_max - red_min);
-        int y_re_hi = PPG_PLOT_Y + PPG_PLOT_H - 1 -
-                      (uint32_t)(re_hi - red_min) * (PPG_PLOT_H - 1) / (red_max - red_min);
         if (col % 2 == 0) {
-            u8g2_DrawPixel(&u8g2, x, y_re_lo);
-            u8g2_DrawPixel(&u8g2, x, y_re_hi);
+            u8g2_DrawPixel(&u8g2, x, y_re);
+        }
+        if (col % 2 == 0 && prev_red_y >= 0 && prev_x >= 0) {
+            u8g2_DrawLine(&u8g2, prev_x, prev_red_y, x, y_re);
+        }
+        prev_red_y = y_re;
+        prev_x = x;
+
+        if (beat) {
+            u8g2_DrawVLine(&u8g2, x, PPG_PLOT_Y, PPG_PLOT_H - 1);
         }
     }
 
     char buf[32];
-    if (count > 0) {
-        uint16_t last = (start + plot_n - 1) % PPG_SAMPLE_BUF;
-        snprintf(buf, sizeof(buf), "IR:%5u  RED:%5u", ir_copy[last], red_copy[last]);
-        u8g2_DrawStr(&u8g2, 8, 61, buf);
+    snprintf(buf, sizeof(buf), "IR:%5u  RED:%5u", last_ir, last_red);
+    u8g2_DrawStr(&u8g2, 8, 61, buf);
+}
+
+static void Display_Draw_PpgRaw1s(void)
+{
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+    u8g2_DrawStr(&u8g2, 8, 10, "RAW (1s)");
+    Display_Draw_LiveAnimation(108, 2);
+    u8g2_DrawHLine(&u8g2, 0, 14, 128);
+
+#define R1S_PLOT_X     4
+#define R1S_PLOT_Y     18
+#define R1S_PLOT_W     120
+#define R1S_PLOT_H     44
+#define R1S_WINDOW     100
+
+    u8g2_DrawFrame(&u8g2, R1S_PLOT_X - 1, R1S_PLOT_Y - 1, R1S_PLOT_W + 2, R1S_PLOT_H + 2);
+
+    for (int gy = 1; gy < 4; gy++) {
+        int y = R1S_PLOT_Y + (R1S_PLOT_H * gy) / 4;
+        u8g2_DrawHLine(&u8g2, R1S_PLOT_X, y, R1S_PLOT_W);
     }
+
+    uint16_t count, head;
+    uint16_t ir_min = 0xFFFF, ir_max = 0;
+    uint16_t red_min = 0xFFFF, red_max = 0;
+    uint16_t last_ir = 0, last_red = 0;
+    {
+        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+        count = ppg_buf_count;
+        head = ppg_buf_head;
+        uint16_t n_scan = (count < R1S_WINDOW) ? count : R1S_WINDOW;
+        for (uint16_t i = 0; i < n_scan; i++) {
+            uint16_t idx = (head + PPG_SAMPLE_BUF - n_scan + i) % PPG_SAMPLE_BUF;
+            uint16_t v = ppg_ir_buf[idx];
+            if (v < ir_min) ir_min = v;
+            if (v > ir_max) ir_max = v;
+            v = ppg_red_buf[idx];
+            if (v < red_min) red_min = v;
+            if (v > red_max) red_max = v;
+            last_ir = ppg_ir_buf[idx];
+            last_red = ppg_red_buf[idx];
+        }
+        xSemaphoreGive(ppg_mutex);
+    }
+
+    if (count < 2) return;
+    if (ir_max == ir_min) ir_max = ir_min + 1;
+    if (red_max == red_min) red_max = red_min + 1;
+
+    uint16_t plot_n = (count < R1S_WINDOW) ? count : R1S_WINDOW;
+    uint16_t start = (head + PPG_SAMPLE_BUF - plot_n) % PPG_SAMPLE_BUF;
+    int x_off = (R1S_PLOT_W - plot_n) / 2;
+
+    int prev_ir_y = -1;
+    int prev_red_y = -1;
+    int prev_x = -1;
+
+    for (int col = 0; col < plot_n; col++) {
+        int x = R1S_PLOT_X + x_off + col;
+        uint16_t idx = (start + col) % PPG_SAMPLE_BUF;
+        uint8_t beat = 0;
+
+        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+        uint16_t ir_v = ppg_ir_buf[idx];
+        uint16_t re_v = ppg_red_buf[idx];
+        if (ppg_beat_buf[idx]) beat = 1;
+        xSemaphoreGive(ppg_mutex);
+
+        int y_ir = R1S_PLOT_Y + R1S_PLOT_H - 1 -
+                   (uint32_t)(ir_v - ir_min) * (R1S_PLOT_H - 1) / (ir_max - ir_min);
+        int y_re = R1S_PLOT_Y + R1S_PLOT_H - 1 -
+                   (uint32_t)(re_v - red_min) * (R1S_PLOT_H - 1) / (red_max - red_min);
+
+        if (prev_ir_y >= 0 && prev_x >= 0) {
+            u8g2_DrawLine(&u8g2, prev_x, prev_ir_y, x, y_ir);
+        } else {
+            u8g2_DrawPixel(&u8g2, x, y_ir);
+        }
+        prev_ir_y = y_ir;
+
+        if (col % 2 == 0) {
+            u8g2_DrawPixel(&u8g2, x, y_re);
+        }
+        if (col % 2 == 0 && prev_red_y >= 0 && prev_x >= 0) {
+            u8g2_DrawLine(&u8g2, prev_x, prev_red_y, x, y_re);
+        }
+        prev_red_y = y_re;
+        prev_x = x;
+
+        if (beat) {
+            u8g2_DrawVLine(&u8g2, x, R1S_PLOT_Y, R1S_PLOT_H - 1);
+        }
+    }
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "IR:%5u  RED:%5u", last_ir, last_red);
+    u8g2_DrawStr(&u8g2, 8, 61, buf);
+}
+
+static void Display_Draw_Processed(void)
+{
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+    u8g2_DrawStr(&u8g2, 8, 10, "PROCESSED");
+    Display_Draw_LiveAnimation(108, 2);
+    u8g2_DrawHLine(&u8g2, 0, 14, 128);
+
+#define PDC_PLOT_X     4
+#define PDC_PLOT_Y     18
+#define PDC_PLOT_W     120
+#define PDC_PLOT_H     44
+
+    u8g2_DrawFrame(&u8g2, PDC_PLOT_X - 1, PDC_PLOT_Y - 1, PDC_PLOT_W + 2, PDC_PLOT_H + 2);
+
+    for (int gy = 1; gy < 4; gy++) {
+        int y = PDC_PLOT_Y + (PDC_PLOT_H * gy) / 4;
+        u8g2_DrawHLine(&u8g2, PDC_PLOT_X, y, PDC_PLOT_W);
+    }
+
+    uint16_t pcount;
+    uint16_t phead;
+    {
+        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+        pcount = ppg_buf_count;
+        phead = ppg_buf_head;
+        xSemaphoreGive(ppg_mutex);
+    }
+
+    if (pcount < 2) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "HR:%3u  SpO2:%3u%%", ppg_hr, ppg_spo2);
+        u8g2_DrawStr(&u8g2, 8, 62, buf);
+        return;
+    }
+
+    float p_min = 1e10f, p_max = -1e10f;
+    xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+    for (uint16_t i = 0; i < pcount; i++) {
+        float v = ppg_proc_buf[(phead + PPG_SAMPLE_BUF - pcount + i) % PPG_SAMPLE_BUF];
+        if (v < p_min) p_min = v;
+        if (v > p_max) p_max = v;
+    }
+    xSemaphoreGive(ppg_mutex);
+
+    float p_abs = fmaxf(fabsf(p_min), fabsf(p_max));
+    if (p_abs < 1.0f) p_abs = 1.0f;
+    float scale = (PDC_PLOT_H / 2.0f - 1.0f) / p_abs;
+    int y_center = PDC_PLOT_Y + PDC_PLOT_H / 2;
+
+    uint16_t pstart = (pcount <= PDC_PLOT_W) ? 0 : (phead + PPG_SAMPLE_BUF - pcount) % PPG_SAMPLE_BUF;
+    uint16_t pplot_n = pcount;
+    uint16_t pdec = (pplot_n + PDC_PLOT_W - 1) / PDC_PLOT_W;
+
+    for (int col = 0; col < PDC_PLOT_W; col++) {
+        uint16_t lo = col * pdec;
+        uint16_t hi = lo + pdec;
+        if (hi > pplot_n) hi = pplot_n;
+        if (lo >= pplot_n) break;
+        int x = PDC_PLOT_X + col;
+
+        float f_lo = 1e10f, f_hi = -1e10f;
+        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+        for (uint16_t j = lo; j < hi; j++) {
+            float v = ppg_proc_buf[(pstart + j) % PPG_SAMPLE_BUF];
+            if (v < f_lo) f_lo = v;
+            if (v > f_hi) f_hi = v;
+        }
+        xSemaphoreGive(ppg_mutex);
+
+        int y_lo = y_center - (int)(f_hi * scale);
+        int y_hi = y_center - (int)(f_lo * scale);
+        if (y_lo < PDC_PLOT_Y) y_lo = PDC_PLOT_Y;
+        if (y_hi >= PDC_PLOT_Y + PDC_PLOT_H) y_hi = PDC_PLOT_Y + PDC_PLOT_H - 1;
+        if (y_lo != y_hi) {
+            u8g2_DrawVLine(&u8g2, x, y_lo, y_hi - y_lo + 1);
+        } else {
+            u8g2_DrawPixel(&u8g2, x, y_lo);
+        }
+    }
+
+    // Beat markers
+    for (int col = 0; col < PDC_PLOT_W; col++) {
+        uint16_t lo = col * pdec;
+        uint16_t hi = lo + pdec;
+        if (hi > pplot_n) hi = pplot_n;
+        if (lo >= pplot_n) break;
+        uint8_t beat = 0;
+        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+        for (uint16_t j = lo; j < hi && !beat; j++) {
+            if (ppg_beat_buf[(pstart + j) % PPG_SAMPLE_BUF]) beat = 1;
+        }
+        xSemaphoreGive(ppg_mutex);
+        if (beat) {
+            u8g2_DrawVLine(&u8g2, PDC_PLOT_X + col, PDC_PLOT_Y, PDC_PLOT_H - 1);
+        }
+    }
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "HR:%3u  SpO2:%3u%%", ppg_hr, ppg_spo2);
+    u8g2_DrawStr(&u8g2, 8, 62, buf);
 }
 
 // --------------------------------------------------- Application -----------------------------------------------------
@@ -262,8 +474,14 @@ void Display_Refresh(void)
         case STATE_MAIN_SCREEN:
             Display_Draw_MainScreen();
             break;
-        case STATE_PPG_RAW:
-            Display_Draw_PpgRaw();
+        case STATE_PPG_RAW_6S_AVG:
+            Display_Draw_PpgRaw6sAvg();
+            break;
+        case STATE_PPG_RAW_1S:
+            Display_Draw_PpgRaw1s();
+            break;
+        case STATE_PPG_PROCESSED:
+            Display_Draw_Processed();
             break;
         default:
             break;

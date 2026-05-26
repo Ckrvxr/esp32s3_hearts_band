@@ -44,6 +44,7 @@ static void vKeyTask(void *pvParameters)
 static void vPpgTask(void *pvParameters)
 {
     PPG_Init();
+    PPG_Signal_Init();
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xIdleStart = 0;
     uint16_t ir[MAX30100_FIFO_DEPTH];
@@ -64,10 +65,11 @@ static void vPpgTask(void *pvParameters)
                     for (int i = 0; i < n; i++) {
                         MAX30100_AutoAdjust_FeedSample(ir[i]);
                         PPG_PushSample(ir[i], red[i]);
+                        PPG_Signal_Process(ir[i], red[i]);
                         if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
                             no_signal = 0;
                         }
-                        ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
+                        // ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
                     }
                     if (no_signal) {
                         xIdleStart = now;
@@ -86,10 +88,11 @@ static void vPpgTask(void *pvParameters)
                     uint8_t no_signal = 1;
                     for (int i = 0; i < n; i++) {
                         PPG_PushSample(ir[i], red[i]);
+                        PPG_Signal_Process(ir[i], red[i]);
                         if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
                             no_signal = 0;
                         }
-                        ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
+                        // ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
                     }
                     if (!no_signal) {
                         g_max30100_state = MAX30100_STATE_NORMAL;
@@ -115,7 +118,7 @@ static void vPpgTask(void *pvParameters)
                             if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
                                 signal_back = 1;
                             }
-                            ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
+                            // ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
                         }
                         if (signal_back) {
                             g_max30100_state = MAX30100_STATE_NORMAL;
