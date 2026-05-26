@@ -11,8 +11,6 @@
 #define HR_PEAK_LOW_BIN  3
 #define HR_PEAK_HIGH_BIN 20
 
-#define PSNR_THRESHOLD   6.0f
-
 // ============================================================
 // DCRemover
 // ============================================================
@@ -50,6 +48,9 @@ static float proc_smooth;
 // ============================================================
 // SpO₂ LUT
 // ============================================================
+float   ppg_spectrum_dB[PPG_SPECTRUM_BINS];
+uint8_t ppg_peak_bin;
+float   ppg_peak_freq;
 static const uint8_t spo2_knots_k[9] = {0, 4, 10, 16, 22, 28, 34, 38, 42};
 static const uint8_t spo2_knots_v[9] = {100, 99, 98, 97, 96, 95, 94, 93, 93};
 
@@ -133,6 +134,10 @@ static void fft_analyze(void)
 {
     // ---- IR FFT ----
     memcpy(fft_real, ir_ac_buf, sizeof(float) * FFT_N);
+    float ir_mean = 0.0f;
+    for (int i = 0; i < FFT_N; i++) ir_mean += ir_ac_buf[i];
+    ir_mean /= (float)FFT_N;
+    for (int i = 0; i < FFT_N; i++) fft_real[i] -= ir_mean;
     for (int i = 0; i < FFT_N; i++) fft_real[i] *= hanning[i];
     memset(fft_imag, 0, sizeof(float) * FFT_N);
     fft_calc(fft_real, fft_imag, FFT_N, FFT_LOG);
@@ -151,12 +156,30 @@ static void fft_analyze(void)
         }
     }
 
+    // Compute dB spectrum (0 ~ 20 Hz, bins 0..102)
+    float p_global_max = p_peak;
+    for (int k = 0; k < PPG_SPECTRUM_BINS; k++) {
+        float p = fft_real[k] * fft_real[k] + fft_imag[k] * fft_imag[k];
+        if (p > p_global_max) p_global_max = p;
+    }
+    for (int k = 0; k < PPG_SPECTRUM_BINS; k++) {
+        float p = fft_real[k] * fft_real[k] + fft_imag[k] * fft_imag[k];
+        float dB = 10.0f * log10f((p + 1e-20f) / (p_global_max + 1e-20f));
+        if (dB < -40.0f) dB = -40.0f;
+        ppg_spectrum_dB[k] = dB;
+    }
+    ppg_peak_bin = (uint8_t)k_peak;
+
     // Save IR FFT values at peak
     float ir_real = fft_real[k_peak];
     float ir_imag = fft_imag[k_peak];
 
     // ---- RED FFT ----
     memcpy(fft_real, red_ac_buf, sizeof(float) * FFT_N);
+    float red_mean = 0.0f;
+    for (int i = 0; i < FFT_N; i++) red_mean += red_ac_buf[i];
+    red_mean /= (float)FFT_N;
+    for (int i = 0; i < FFT_N; i++) fft_real[i] -= red_mean;
     for (int i = 0; i < FFT_N; i++) fft_real[i] *= hanning[i];
     memset(fft_imag, 0, sizeof(float) * FFT_N);
     fft_calc(fft_real, fft_imag, FFT_N, FFT_LOG);
@@ -180,16 +203,24 @@ static void fft_analyze(void)
     }
 
     float f_hr = k_exact * FS / (float)FFT_N;
+    ppg_peak_freq = f_hr;
     float hr = f_hr * 60.0f;
     if (hr < 30.0f) hr = 30.0f;
     if (hr > 240.0f) hr = 240.0f;
 
-    // ---- Signal quality (PSNR) ----
+    // ---- Adaptive PSNR threshold ----
     int k_count = HR_PEAK_HIGH_BIN - HR_PEAK_LOW_BIN + 1;
     float p_mean = p_sum / (float)k_count;
     float psnr = 10.0f * log10f(p_peak / (p_mean + 1e-10f));
 
-    if (psnr > PSNR_THRESHOLD) {
+    float psnr_th = 6.0f;
+    if (k_peak <= 5) {
+        psnr_th = 12.0f;
+    } else if (k_peak <= 11) {
+        psnr_th = 8.0f;
+    }
+
+    if (psnr > psnr_th) {
         ppg_hr = (uint8_t)(hr + 0.5f);
         marker_interval = (uint32_t)(6000.0f / (float)ppg_hr);
         if (marker_interval < 1) marker_interval = 1;
@@ -233,6 +264,10 @@ void PPG_V2_Init(void)
 
     ppg_hr = 0;
     ppg_spo2 = 99;
+
+    memset(ppg_spectrum_dB, 0, sizeof(ppg_spectrum_dB));
+    ppg_peak_bin = 0;
+    ppg_peak_freq = 0.0f;
 }
 
 void PPG_V2_Process(uint16_t ir_raw, uint16_t red_raw)
@@ -241,12 +276,12 @@ void PPG_V2_Process(uint16_t ir_raw, uint16_t red_raw)
     // 1. DCRemover
     // --------------------------------------------------------
     float x_ir = (float)ir_raw;
-    float w_ir = x_ir + 0.95f * dc_w_ir;
+    float w_ir = x_ir + 0.98f * dc_w_ir;
     float ac_ir = w_ir - dc_w_ir;
     dc_w_ir = w_ir;
 
     float x_red = (float)red_raw;
-    float w_red = x_red + 0.95f * dc_w_red;
+    float w_red = x_red + 0.98f * dc_w_red;
     float ac_red = w_red - dc_w_red;
     dc_w_red = w_red;
 

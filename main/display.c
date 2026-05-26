@@ -12,6 +12,7 @@
 
 #include "display.h"
 #include "ppg.h"
+#include "ppg_v2.h"
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
 #define I2C_MASTER_SCL      4
@@ -462,6 +463,69 @@ static void Display_Draw_Processed(void)
     u8g2_DrawStr(&u8g2, 8, 62, buf);
 }
 
+// ============================================================
+// FFT Spectrum
+// ============================================================
+static void Display_Draw_FftSpectrum(void)
+{
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+    u8g2_DrawStr(&u8g2, 8, 10, "FFT SPECTRUM");
+    Display_Draw_LiveAnimation(108, 2);
+    u8g2_DrawHLine(&u8g2, 0, 14, 128);
+
+#define FFT_PLOT_X     4
+#define FFT_PLOT_Y     18
+#define FFT_PLOT_W     120
+#define FFT_PLOT_H     38
+
+    u8g2_DrawFrame(&u8g2, FFT_PLOT_X - 1, FFT_PLOT_Y - 1, FFT_PLOT_W + 2, FFT_PLOT_H + 2);
+
+    for (int gy = 1; gy < 3; gy++) {
+        int y = FFT_PLOT_Y + (FFT_PLOT_H * gy) / 3;
+        u8g2_DrawHLine(&u8g2, FFT_PLOT_X, y, FFT_PLOT_W);
+    }
+
+    for (int col = 0; col < FFT_PLOT_W; col++) {
+        float lo = (float)col * (float)PPG_SPECTRUM_BINS / (float)FFT_PLOT_W;
+        float hi = (float)(col + 1) * (float)PPG_SPECTRUM_BINS / (float)FFT_PLOT_W;
+        int k_lo = (int)lo;
+        int k_hi = (int)ceilf(hi);
+        if (k_hi > PPG_SPECTRUM_BINS) k_hi = PPG_SPECTRUM_BINS;
+
+        float max_dB = -40.0f;
+        for (int k = k_lo; k < k_hi; k++) {
+            if (ppg_spectrum_dB[k] > max_dB) max_dB = ppg_spectrum_dB[k];
+        }
+
+        int bar_h = (int)((max_dB + 40.0f) / 40.0f * (float)(FFT_PLOT_H - 1));
+        if (bar_h < 0) bar_h = 0;
+        if (bar_h > FFT_PLOT_H - 1) bar_h = FFT_PLOT_H - 1;
+        int y0 = FFT_PLOT_Y + FFT_PLOT_H - 1 - bar_h;
+
+        u8g2_DrawVLine(&u8g2, FFT_PLOT_X + col, y0, bar_h + 1);
+    }
+
+    int peak_col = (int)((float)ppg_peak_bin * (float)FFT_PLOT_W / (float)PPG_SPECTRUM_BINS);
+    if (peak_col >= 0 && peak_col < FFT_PLOT_W) {
+        int x = FFT_PLOT_X + peak_col;
+        u8g2_DrawPixel(&u8g2, x, FFT_PLOT_Y - 2);
+        u8g2_DrawPixel(&u8g2, x - 1, FFT_PLOT_Y - 2);
+        u8g2_DrawPixel(&u8g2, x + 1, FFT_PLOT_Y - 2);
+        u8g2_DrawPixel(&u8g2, x, FFT_PLOT_Y - 1);
+    }
+
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "PK:%.1fHz", (double)ppg_peak_freq);
+    u8g2_DrawStr(&u8g2, FFT_PLOT_X + FFT_PLOT_W - 56, FFT_PLOT_Y + 9, buf);
+
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+    u8g2_DrawStr(&u8g2, FFT_PLOT_X - 2, FFT_PLOT_Y + FFT_PLOT_H + 8, "0");
+    u8g2_DrawStr(&u8g2, FFT_PLOT_X + FFT_PLOT_W / 2 - 4, FFT_PLOT_Y + FFT_PLOT_H + 8, "10");
+    u8g2_DrawStr(&u8g2, FFT_PLOT_X + FFT_PLOT_W - 12, FFT_PLOT_Y + FFT_PLOT_H + 8, "20Hz");
+
+}
+
 // --------------------------------------------------- Application -----------------------------------------------------
 
 
@@ -482,6 +546,9 @@ void Display_Refresh(void)
             break;
         case STATE_PPG_PROCESSED:
             Display_Draw_Processed();
+            break;
+        case STATE_PPG_FFT:
+            Display_Draw_FftSpectrum();
             break;
         default:
             break;

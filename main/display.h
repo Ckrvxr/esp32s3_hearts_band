@@ -7,6 +7,7 @@ typedef enum {
     STATE_PPG_RAW_6S_AVG,
     STATE_PPG_RAW_1S,
     STATE_PPG_PROCESSED,
+    STATE_PPG_FFT,
     STATE_COUNT,
 } DisplayState_t;
 
