@@ -8,6 +8,7 @@
 #include "display.h"
 #include "key.h"
 #include "max30100.h"
+#include "ppg.h"
 
 static void MainTask(void *pvParameters)
 {
@@ -40,8 +41,9 @@ static void vKeyTask(void *pvParameters)
     }
 }
 
-static void vMax30100Task(void *pvParameters)
+static void vPpgTask(void *pvParameters)
 {
+    PPG_Init();
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xIdleStart = 0;
     uint16_t ir[MAX30100_FIFO_DEPTH];
@@ -61,6 +63,7 @@ static void vMax30100Task(void *pvParameters)
                     uint8_t no_signal = 1;
                     for (int i = 0; i < n; i++) {
                         MAX30100_AutoAdjust_FeedSample(ir[i]);
+                        PPG_PushSample(ir[i], red[i]);
                         if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
                             no_signal = 0;
                         }
@@ -82,6 +85,7 @@ static void vMax30100Task(void *pvParameters)
                 if (n > 0) {
                     uint8_t no_signal = 1;
                     for (int i = 0; i < n; i++) {
+                        PPG_PushSample(ir[i], red[i]);
                         if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
                             no_signal = 0;
                         }
@@ -139,5 +143,5 @@ void app_main(void)
     xTaskCreatePinnedToCore(MainTask, "MainTask", 4096, NULL, 1, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 6144, NULL, 2, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vKeyTask, "KeyTask", 2048, NULL, 1, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(vMax30100Task, "Max30100Task", 4096, NULL, 1, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(vPpgTask, "PpgTask", 4096, NULL, 1, NULL, tskNO_AFFINITY);
 }

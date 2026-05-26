@@ -4,6 +4,8 @@
 
 typedef enum {
     STATE_MAIN_SCREEN,
+    STATE_PPG_RAW,
+    STATE_COUNT,
 } DisplayState_t;
 
 extern volatile DisplayState_t currentState;
