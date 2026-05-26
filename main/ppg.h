@@ -20,5 +20,3 @@ extern volatile uint8_t ppg_spo2;
 
 void PPG_Init(void);
 void PPG_PushSample(uint16_t ir, uint16_t red);
-void PPG_Signal_Init(void);
-void PPG_Signal_Process(uint16_t ir_raw, uint16_t red_raw);

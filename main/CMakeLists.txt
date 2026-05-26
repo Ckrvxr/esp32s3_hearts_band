@@ -6,6 +6,8 @@ set(COMPONENT_SRCS
     "key.c"
     "max30100.c"
     "ppg.c"
+    "ppg_v1.c"
+    "ppg_v2.c"
     ${U8G2_SRCS}
 )
 
