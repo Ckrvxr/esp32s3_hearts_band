@@ -10,7 +10,7 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
-#include "ble_driver.h"
+#include "ble.h"
 
 static const char *TAG = "BLE";
 

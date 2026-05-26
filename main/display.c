@@ -13,6 +13,7 @@
 #include "display.h"
 #include "ppg.h"
 #include "ppg_v2.h"
+#include "sqi.h"
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
 #define I2C_MASTER_SCL      4
@@ -120,14 +121,6 @@ void Display_Init(void)
 // ------------------------------------------------------ Driver -------------------------------------------------------
 
 // --------------------------------------------------- Application -----------------------------------------------------
-static void Display_Draw_LiveAnimation(int x, int y)
-{
-    uint8_t phase = (frame_count / 2) % 4;
-    int8_t dx = (phase == 1 || phase == 2) ? 3 : 0;
-    int8_t dy = (phase == 2 || phase == 3) ? 3 : 0;
-    u8g2_DrawBox(&u8g2, x + dx, y + dy, 2, 2);
-}
-
 static void __attribute__((unused)) Display_Draw_Cursor(uint8_t y, uint8_t is_selected, uint8_t is_editing)
 {
     if (!is_selected) return;
@@ -146,7 +139,6 @@ static void Display_Draw_MainScreen(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
     u8g2_DrawStr(&u8g2, 8, 10, "Hearts Band");
-    Display_Draw_LiveAnimation(108, 2);
 
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
@@ -157,7 +149,6 @@ static void Display_Draw_PpgRaw6sAvg(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
     u8g2_DrawStr(&u8g2, 8, 10, "PPG RAW (6s, Avg)");
-    Display_Draw_LiveAnimation(108, 2);
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
 #define PPG_PLOT_X     4
@@ -267,8 +258,7 @@ static void Display_Draw_PpgRaw6sAvg(void)
 static void Display_Draw_PpgRaw1s(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(&u8g2, 8, 10, "RAW (1s)");
-    Display_Draw_LiveAnimation(108, 2);
+    u8g2_DrawStr(&u8g2, 8, 10, "PPG RAW (1s)");
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
 #define R1S_PLOT_X     4
@@ -365,7 +355,6 @@ static void Display_Draw_Processed(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
     u8g2_DrawStr(&u8g2, 8, 10, "PROCESSED");
-    Display_Draw_LiveAnimation(108, 2);
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
 #define PDC_PLOT_X     4
@@ -470,7 +459,6 @@ static void Display_Draw_FftSpectrum(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
     u8g2_DrawStr(&u8g2, 8, 10, "FFT SPECTRUM");
-    Display_Draw_LiveAnimation(108, 2);
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
 #define FFT_PLOT_X     4
@@ -531,7 +519,6 @@ static void Display_Draw_TimerSet(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
     u8g2_DrawStr(&u8g2, 8, 10, "Timer Set");
-    Display_Draw_LiveAnimation(108, 2);
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
     u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
@@ -545,7 +532,6 @@ static void Display_Draw_TimerRunning(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
     u8g2_DrawStr(&u8g2, 8, 10, "Countdown");
-    Display_Draw_LiveAnimation(108, 2);
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
     u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
@@ -561,7 +547,6 @@ static void Display_Draw_TimerDone(void)
 
     if ((frame_count / 8) % 2) {
         u8g2_DrawStr(&u8g2, 32, 10, "TIME'S UP");
-        Display_Draw_LiveAnimation(108, 2);
         u8g2_DrawHLine(&u8g2, 0, 14, 128);
     }
 
@@ -574,6 +559,11 @@ static void Display_Draw_TimerDone(void)
 // --------------------------------------------------- Timer Pages -----------------------------------------------------
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
+void Display_Sleep(bool sleep_en)
+{
+    u8g2_SetPowerSave(&u8g2, sleep_en ? 1 : 0);
+}
+
 void Display_Refresh(void)
 {
     u8g2_ClearBuffer(&u8g2);

@@ -20,3 +20,4 @@ extern volatile uint8_t slect_index;
 
 void Display_Init(void);
 void Display_Refresh(void);
+void Display_Sleep(bool sleep_en);

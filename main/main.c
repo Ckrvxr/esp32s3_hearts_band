@@ -5,12 +5,14 @@
 
 #include "esp_log.h"
 
+#include "ble.h"
+
 #include "display.h"
 #include "key.h"
 #include "max30100.h"
-#include "ble_driver.h"
 #include "ppg.h"
 #include "ppg_v2.h"
+#include "sqi.h"
 
 static void MainTask(void *pvParameters)
 {
@@ -47,6 +49,7 @@ static void vPpgTask(void *pvParameters)
 {
     PPG_Init();
     PPG_V2_Init();
+    SQI_Init();
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xIdleStart = 0;
     uint16_t ir[MAX30100_FIFO_DEPTH];
@@ -62,21 +65,25 @@ static void vPpgTask(void *pvParameters)
             case MAX30100_STATE_NORMAL:
             {
                 uint8_t n = MAX30100_ReadFifo(ir, red);
-                if (n > 0) {
-                    uint8_t no_signal = 1;
-                    for (int i = 0; i < n; i++) {
-                        MAX30100_AutoAdjust_FeedSample(ir[i]);
-                        PPG_PushSample(ir[i], red[i]);
+                for (int i = 0; i < n; i++) {
+                    SQI_FeedSample(ir[i], red[i]);
+
+                    MAX30100_AutoAdjust_FeedSample(ir[i]);
+                    PPG_PushSample(ir[i], red[i]);
+
+                    if (SQI_HasSignal()) {
                         PPG_V2_Process(ir[i], red[i]);
-                        if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
-                            no_signal = 0;
-                        }
-                        // ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
                     }
-                    if (no_signal) {
-                        xIdleStart = now;
+                }
+
+                if (!SQI_HasSignal()) {
+                    if (!xIdleStart) xIdleStart = now;
+                    if ((now - xIdleStart) >= pdMS_TO_TICKS(1000)) {
                         g_max30100_state = MAX30100_STATE_IDLE;
+                        xIdleStart = 0;
                     }
+                } else {
+                    xIdleStart = 0;
                 }
 
                 MAX30100_AutoAdjust_Run(0, 0, now_ms);
@@ -86,51 +93,46 @@ static void vPpgTask(void *pvParameters)
             case MAX30100_STATE_IDLE:
             {
                 uint8_t n = MAX30100_ReadFifo(ir, red);
-                if (n > 0) {
-                    uint8_t no_signal = 1;
-                    for (int i = 0; i < n; i++) {
-                        PPG_PushSample(ir[i], red[i]);
-                        PPG_V2_Process(ir[i], red[i]);
-                        if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
-                            no_signal = 0;
-                        }
-                        // ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
-                    }
-                    if (!no_signal) {
-                        g_max30100_state = MAX30100_STATE_NORMAL;
-                    } else if ((now - xIdleStart) >= pdMS_TO_TICKS(MAX30100_IDLE_TIMEOUT_MS)) {
-                        MAX30100_Sleep();
-                        xIdleStart = now;
-                    }
+                for (int i = 0; i < n; i++) {
+                    SQI_FeedSample(ir[i], red[i]);
+                    PPG_PushSample(ir[i], red[i]);
+                }
+
+                if (SQI_HasSignal()) {
+                    g_max30100_state = MAX30100_STATE_NORMAL;
+                    break;
+                }
+
+                if (!xIdleStart) xIdleStart = now;
+                if ((now - xIdleStart) >= pdMS_TO_TICKS(3000)) {
+                    MAX30100_Sleep();
+                    Display_Sleep(true);
+                    g_max30100_state = MAX30100_STATE_SLEEPING;
+                    xIdleStart = 0;
                 }
                 break;
             }
 
             case MAX30100_STATE_SLEEPING:
             {
+                if (!xIdleStart) xIdleStart = now;
                 if ((now - xIdleStart) >= pdMS_TO_TICKS(MAX30100_WAKE_INTERVAL_MS)) {
                     MAX30100_Wake();
                     vTaskDelay(pdMS_TO_TICKS(50));
                     xLastWakeTime = xTaskGetTickCount();
 
                     uint8_t n = MAX30100_ReadFifo(ir, red);
-                    if (n > 0) {
-                        uint8_t signal_back = 0;
-                        for (int i = 0; i < n; i++) {
-                            if (ir[i] >= MAX30100_IDLE_THRESHOLD_IR || red[i] >= MAX30100_IDLE_THRESHOLD_RED) {
-                                signal_back = 1;
-                            }
-                            // ESP_LOGI("MAX30100", "IR=%5u  RED=%5u", ir[i], red[i]);
-                        }
-                        if (signal_back) {
-                            g_max30100_state = MAX30100_STATE_NORMAL;
-                        } else {
-                            MAX30100_Sleep();
-                        }
+                    for (int i = 0; i < n; i++) {
+                        SQI_FeedSample(ir[i], red[i]);
+                    }
+
+                    if (SQI_HasSignal()) {
+                        Display_Sleep(false);
+                        g_max30100_state = MAX30100_STATE_NORMAL;
                     } else {
                         MAX30100_Sleep();
                     }
-                    xIdleStart = xTaskGetTickCount();
+                    xIdleStart = 0;
                 }
                 break;
             }

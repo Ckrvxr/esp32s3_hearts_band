@@ -5,10 +5,11 @@ set(COMPONENT_SRCS
     "display.c"
     "key.c"
     "max30100.c"
-    "ble_driver.c"
+    "ble.c"
     "ppg.c"
     "ppg_v1.c"
     "ppg_v2.c"
+    "sqi.c"
     ${U8G2_SRCS}
 )
 

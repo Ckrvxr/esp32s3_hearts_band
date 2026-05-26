@@ -2,6 +2,7 @@
 #include <string.h>
 #include "ppg.h"
 #include "ppg_v2.h"
+#include "sqi.h"
 
 #define FFT_N       512
 #define FFT_LOG     9
@@ -326,11 +327,16 @@ void PPG_V2_Process(uint16_t ir_raw, uint16_t red_raw)
     xSemaphoreGive(ppg_mutex);
 
     // --------------------------------------------------------
-    // 6. Periodic FFT analysis
+    // 6. Periodic FFT analysis (skip if no reliable signal)
     // --------------------------------------------------------
     total_samples++;
     if (ac_buf_count >= FFT_N && total_samples - last_fft_sample >= FFT_ANALYZE_INTERVAL) {
-        fft_analyze();
+        if (SQI_GetLevel() >= SQI_FAIR) {
+            fft_analyze();
+        } else {
+            ppg_hr = 0;
+            ppg_spo2 = 0;
+        }
         last_fft_sample = total_samples;
     }
 }
