@@ -102,8 +102,8 @@ uint8_t MAX30100_ReadFifo(uint16_t *ir, uint16_t *red)
     }
 
     for (int i = 0; i < available; i++) {
-        ir[i]  = ((uint16_t)buf[i * 4]     << 8) | buf[i * 4 + 1];
-        red[i] = ((uint16_t)buf[i * 4 + 2] << 8) | buf[i * 4 + 3];
+        red[i] = ((uint16_t)buf[i * 4]     << 8) | buf[i * 4 + 1];
+        ir[i]  = ((uint16_t)buf[i * 4 + 2] << 8) | buf[i * 4 + 3];
     }
 
     return available;

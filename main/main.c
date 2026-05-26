@@ -113,6 +113,10 @@ static void vPpgTask(void *pvParameters)
                     vTaskDelay(pdMS_TO_TICKS(50));
                     xLastWakeTime = xTaskGetTickCount();
 
+                    dc_ir = 0;
+                    dc_red = 0;
+                    MAX30100_AutoAdjust_Init();
+
                     uint8_t n = MAX30100_ReadFifo(ir, red);
                     for (int i = 0; i < n; i++) {
                         PPG_V2_Process(ir[i], red[i]);
