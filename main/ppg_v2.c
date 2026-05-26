@@ -6,10 +6,10 @@
 
 #define FFT_N       512
 #define FFT_LOG     9
-#define FFT_ANALYZE_INTERVAL 200
+#define FFT_ANALYZE_INTERVAL 50
 #define FS          100.0f
 
-#define HR_PEAK_LOW_BIN  3
+#define HR_PEAK_LOW_BIN  4
 #define HR_PEAK_HIGH_BIN 20
 
 // ============================================================
@@ -215,9 +215,9 @@ static void fft_analyze(void)
     float psnr = 10.0f * log10f(p_peak / (p_mean + 1e-10f));
 
     float psnr_th = 6.0f;
-    if (k_peak <= 5) {
+    if (k_peak <= 6) {
         psnr_th = 12.0f;
-    } else if (k_peak <= 11) {
+    } else if (k_peak <= 12) {
         psnr_th = 8.0f;
     }
 
@@ -243,7 +243,7 @@ static void fft_analyze(void)
 void PPG_V2_Init(void)
 {
     for (int i = 0; i < FFT_N; i++) {
-        hanning[i] = 0.5f - 0.5f * cosf(2.0f * (float)M_PI * (float)i / (float)(FFT_N - 1));
+        hanning[i] = 1.0f;
     }
 
     dc_w_ir = 0.0f;
