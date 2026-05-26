@@ -10,7 +10,6 @@ SemaphoreHandle_t ppg_mutex = NULL;
 uint8_t  ppg_beat_buf[PPG_SAMPLE_BUF];
 float    ppg_proc_buf[PPG_SAMPLE_BUF];
 volatile uint8_t ppg_hr = 0;
-volatile uint8_t ppg_spo2 = 99;
 
 void PPG_Init(void)
 {

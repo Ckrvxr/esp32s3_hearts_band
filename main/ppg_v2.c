@@ -4,228 +4,80 @@
 #include "ppg_v2.h"
 
 #define FS              100.0f
-#define HR_MIN          38
-#define HR_MAX          250
-#define VAR_SMALL_HW    8
-#define THRESH_RATIO    0.35f
-#define SPIKE_RATIO     2.5f
-#define HR_EMA_ALPHA    0.3f
-#define AC_BUF_SIZE     600
-#define MAX_GOOD_INT    5
-#define HR_CROSS_TOL    0.15f
+#define FFT_N           512
+#define FFT_HALF        256
+#define FFT_STEP        256
+#define HR_MIN          30
+#define HR_MAX          240
+#define HR_EMA_ALPHA    0.4f
+#define CONF_THRESH     30.0f
+#define TIMEOUT_BLANK   2
 
-static float dc_w_ir, dc_ir_slow, proc_smooth;
-static float dc_w_red;
-
-static float ac_buffer[AC_BUF_SIZE];
-static uint16_t ac_buf_pos;
-static uint16_t ac_buf_count;
-
-static float amp_positive;
-static float amp_negative;
-static float pos_th;
-static float neg_th;
-
-typedef enum {
-    TRACK_IDLE,
-    TRACK_PEAK,
-    TRACK_TROUGH,
-} track_state_t;
-static track_state_t track_state;
-static float track_val;
-static uint16_t track_pos;
-
-static uint16_t last_peak_pos;
-static uint16_t last_trough_pos;
-static float peak_hr;
-static float trough_hr;
-static float hr_estimate;
-
-static uint16_t good_intervals[MAX_GOOD_INT];
-static uint8_t good_idx, good_count;
-static uint16_t last_good_interval;
-
+static float dc_block_y, x_prev;
+static float fft_buf[FFT_N];
+static float hanning[FFT_N];
+static float fft_work[FFT_N * 2];
+static uint16_t fft_buf_idx;
+static uint32_t fft_sample_count;
+static float hr_ema;
+static uint8_t no_signal_count;
 static uint32_t marker_counter;
 static uint32_t marker_interval;
-static bool motion_active;
+static bool fft_valid;
+static float dc_ir_slow;
+static float proc_smooth;
 
-static uint32_t sample_counter;
-static uint32_t last_good_peak_time;
-
-static float compute_variance(uint16_t center, uint16_t hw)
+static void fft_radix2(float *data, int n)
 {
-    float sum = 0.0f, sum2 = 0.0f;
-    int count = 0;
-
-    for (int d = -(int)hw; d <= (int)hw; d++) {
-        int idx = (int)center + d;
-        if (idx < 0) idx += AC_BUF_SIZE;
-        if (idx >= AC_BUF_SIZE) idx -= AC_BUF_SIZE;
-        float v = ac_buffer[(uint16_t)idx];
-        sum += v;
-        sum2 += v * v;
-        count++;
-    }
-
-    if (count < 3) return 0.0f;
-    float mean = sum / (float)count;
-    float var = (sum2 / (float)count) - (mean * mean);
-    return (var < 0.0f) ? 0.0f : var;
-}
-
-static uint16_t calc_interval(uint16_t current, uint16_t last)
-{
-    if (current >= last)
-        return current - last;
-    return current + AC_BUF_SIZE - last;
-}
-
-static void update_hr(float hr)
-{
-    hr_estimate = HR_EMA_ALPHA * hr + (1.0f - HR_EMA_ALPHA) * hr_estimate;
-    if (hr_estimate < (float)HR_MIN) hr_estimate = (float)HR_MIN;
-    if (hr_estimate > (float)HR_MAX) hr_estimate = (float)HR_MAX;
-    ppg_hr = (uint8_t)(hr_estimate + 0.5f);
-    marker_interval = (uint32_t)(6000.0f / hr_estimate);
-    if (marker_interval < 1) marker_interval = 1;
-}
-
-static bool motion_check(uint16_t pos)
-{
-    float var_small = compute_variance(pos, VAR_SMALL_HW);
-    uint16_t large_hw = (uint16_t)(1.5f * (float)last_good_interval);
-    if (large_hw < VAR_SMALL_HW) large_hw = VAR_SMALL_HW;
-    if (large_hw > AC_BUF_SIZE / 2) large_hw = AC_BUF_SIZE / 2;
-    float var_large = compute_variance(pos, large_hw);
-
-    if (var_large < 10.0f && var_small < 10.0f) return true;
-    return (var_small > var_large * 3.0f);
-}
-
-static void store_good_interval(uint16_t interval)
-{
-    if (good_count < MAX_GOOD_INT) good_count++;
-    good_intervals[good_idx] = interval;
-    good_idx = (good_idx + 1) % MAX_GOOD_INT;
-    last_good_interval = interval;
-}
-
-static uint16_t avg_good_interval(void)
-{
-    if (good_count == 0) return 0;
-    uint32_t sum = 0;
-    for (uint8_t i = 0; i < good_count; i++) sum += good_intervals[i];
-    return (uint16_t)(sum / good_count);
-}
-
-static void process_peak(uint16_t pos, float val)
-{
-    (void)val;
-    uint16_t interval = calc_interval(pos, last_peak_pos);
-    last_peak_pos = pos;
-
-    if (interval < 2) return;
-    float hr = 6000.0f / (float)interval;
-    if (hr < (float)HR_MIN || hr > (float)HR_MAX) return;
-
-    bool cross_ok = true;
-    if (trough_hr > 0.0f) {
-        float diff = fabsf(hr - trough_hr) / fmaxf(hr, trough_hr);
-        cross_ok = (diff < HR_CROSS_TOL);
-    }
-
-    if (!cross_ok) {
-        motion_active = true;
-        if (good_count > 0) {
-            uint16_t avg_int = avg_good_interval();
-            float hr_from_avg = 6000.0f / (float)avg_int;
-            update_hr(hr_from_avg);
+    int j = 0;
+    for (int i = 0; i < n; i++) {
+        if (i < j) {
+            float tr = data[j*2], ti = data[j*2+1];
+            data[j*2] = data[i*2]; data[j*2+1] = data[i*2+1];
+            data[i*2] = tr; data[i*2+1] = ti;
         }
-        peak_hr = 0.0f;
-        return;
+        int m = n / 2;
+        while (m >= 1 && j >= m) { j -= m; m /= 2; }
+        j += m;
     }
 
-    bool motion = motion_check(pos);
-    if (motion) {
-        motion_active = true;
-        if (good_count > 0) {
-            uint16_t avg_int = avg_good_interval();
-            float hr_from_avg = 6000.0f / (float)avg_int;
-            update_hr(hr_from_avg);
+    for (int len = 2; len <= n; len <<= 1) {
+        float w_angle = -2.0f * (float)M_PI / len;
+        float wr = cosf(w_angle), wi = sinf(w_angle);
+        for (int i = 0; i < n; i += len) {
+            float twr = 1.0f, twi = 0.0f;
+            for (int k = 0; k < len / 2; k++) {
+                int i1 = i + k, i2 = i + k + len / 2;
+                float t_r = twr * data[i2*2] - twi * data[i2*2+1];
+                float t_i = twr * data[i2*2+1] + twi * data[i2*2];
+                data[i2*2] = data[i1*2] - t_r;
+                data[i2*2+1] = data[i1*2+1] - t_i;
+                data[i1*2] += t_r;
+                data[i1*2+1] += t_i;
+                float nwr = twr * wr - twi * wi;
+                twi = twr * wi + twi * wr;
+                twr = nwr;
+            }
         }
-        return;
     }
-
-    store_good_interval(interval);
-    update_hr(hr);
-    last_good_interval = interval;
-    motion_active = false;
-    last_good_peak_time = sample_counter;
-    peak_hr = hr;
-}
-
-static void process_trough(uint16_t pos, float val)
-{
-    (void)val;
-    uint16_t interval = calc_interval(pos, last_trough_pos);
-    last_trough_pos = pos;
-
-    if (interval < 2) return;
-    float hr = 6000.0f / (float)interval;
-    if (hr < (float)HR_MIN || hr > (float)HR_MAX) return;
-
-    bool cross_ok = true;
-    if (peak_hr > 0.0f) {
-        float diff = fabsf(hr - peak_hr) / fmaxf(hr, peak_hr);
-        cross_ok = (diff < HR_CROSS_TOL);
-    }
-
-    if (!cross_ok) {
-        trough_hr = 0.0f;
-        return;
-    }
-
-    bool motion = motion_check(pos);
-    if (motion) return;
-
-    trough_hr = hr;
 }
 
 void PPG_V2_Init(void)
 {
-    dc_w_ir = 0.0f;
-    dc_w_red = 0.0f;
-    dc_ir_slow = 0.0f;
-    proc_smooth = 0.0f;
-
-    memset(ac_buffer, 0, sizeof(ac_buffer));
-    ac_buf_pos = 0;
-    ac_buf_count = 0;
-
-    amp_positive = 30.0f;
-    amp_negative = 30.0f;
-    pos_th = 15.0f;
-    neg_th = 15.0f;
-    track_state = TRACK_IDLE;
-    track_val = 0.0f;
-    track_pos = 0;
-
-    last_peak_pos = 0;
-    last_trough_pos = 0;
-    peak_hr = 0.0f;
-    trough_hr = 0.0f;
-    hr_estimate = 72.0f;
-
-    good_idx = 0;
-    good_count = 0;
-    last_good_interval = 42;
-
+    dc_block_y = 0.0f;
+    x_prev = 0.0f;
+    memset(fft_buf, 0, sizeof(fft_buf));
+    for (int i = 0; i < FFT_N; i++)
+        hanning[i] = 0.5f - 0.5f * cosf(2.0f * (float)M_PI * i / (FFT_N - 1));
+    fft_buf_idx = 0;
+    fft_sample_count = 0;
+    hr_ema = 72.0f;
+    no_signal_count = TIMEOUT_BLANK;
     marker_counter = 0;
     marker_interval = 0;
-
-    sample_counter = 0;
-    last_good_peak_time = 0;
-    motion_active = false;
+    fft_valid = false;
+    dc_ir_slow = 0.0f;
+    proc_smooth = 0.0f;
     ppg_hr = 0;
 }
 
@@ -234,110 +86,80 @@ bool PPG_V2_HasContact(void)
     return dc_ir_slow > 2000.0f;
 }
 
-void PPG_V2_GetThresholds(float *pos, float *neg)
-{
-    if (pos) *pos = pos_th;
-    if (neg) *neg = neg_th;
-}
-
 void PPG_V2_Process(uint16_t ir_raw, uint16_t red_raw)
 {
-    float x_ir = (float)ir_raw;
-    float w_ir = x_ir + 0.98f * dc_w_ir;
-    float ac_ir = w_ir - dc_w_ir;
-    dc_w_ir = w_ir;
+    (void)red_raw;
+    float x = (float)ir_raw;
 
-    float x_red = (float)red_raw;
-    float w_red = x_red + 0.98f * dc_w_red;
-    dc_w_red = w_red;
+    float y_dc = x - x_prev + 0.97f * dc_block_y;
+    dc_block_y = y_dc;
+    x_prev = x;
 
-    dc_ir_slow = 0.999f * dc_ir_slow + 0.001f * x_ir;
+    fft_buf[fft_buf_idx] = y_dc;
+    fft_buf_idx = (fft_buf_idx + 1) % FFT_N;
+    fft_sample_count++;
 
-    ac_buffer[ac_buf_pos] = ac_ir;
-    uint16_t current_idx = ac_buf_pos;
-    ac_buf_pos = (ac_buf_pos + 1) % AC_BUF_SIZE;
-    if (ac_buf_count < AC_BUF_SIZE) ac_buf_count++;
+    if (fft_sample_count >= FFT_N && (fft_sample_count % FFT_STEP == 0)) {
+        int pos = (fft_buf_idx + FFT_N - FFT_STEP) % FFT_N;
+        for (int i = 0; i < FFT_N; i++) {
+            int idx = (pos + i) % FFT_N;
+            fft_work[i * 2] = fft_buf[idx] * hanning[i];
+            fft_work[i * 2 + 1] = 0.0f;
+        }
 
-    float abs_ac = fabsf(ac_ir);
-    float running_max = fmaxf(amp_positive, amp_negative);
+        fft_radix2(fft_work, FFT_N);
 
-    if (abs_ac > running_max * SPIKE_RATIO) {
-        amp_positive *= 0.9995f;
-        amp_negative *= 0.9995f;
-    } else {
-        if (ac_ir > amp_positive)
-            amp_positive = ac_ir;
-        else
-            amp_positive *= 0.9995f;
+        int k_peak = 3;
+        float mag_max = 0.0f;
+        for (int k = 3; k <= 20; k++) {
+            float re = fft_work[k * 2], im = fft_work[k * 2 + 1];
+            float mag = sqrtf(re * re + im * im);
+            if (mag > mag_max) { mag_max = mag; k_peak = k; }
+        }
 
-        if (-ac_ir > amp_negative)
-            amp_negative = -ac_ir;
-        else
-            amp_negative *= 0.9995f;
+        float k_exact = (float)k_peak;
+        if (mag_max > CONF_THRESH && k_peak > 0 && k_peak < FFT_HALF) {
+            float re_m = fft_work[(k_peak - 1) * 2], im_m = fft_work[(k_peak - 1) * 2 + 1];
+            float re_p = fft_work[(k_peak + 1) * 2], im_p = fft_work[(k_peak + 1) * 2 + 1];
+            float m1 = sqrtf(re_m * re_m + im_m * im_m);
+            float m3 = sqrtf(re_p * re_p + im_p * im_p);
+            float denom = 2.0f * mag_max - m1 - m3;
+            if (fabsf(denom) > 1e-10f) {
+                float d = 0.5f * (m3 - m1) / denom;
+                if (d > -0.5f && d < 0.5f) k_exact += d;
+            }
+        }
+
+        float hr = k_exact * FS / FFT_N * 60.0f;
+
+        if (hr >= (float)HR_MIN && hr <= (float)HR_MAX && mag_max > CONF_THRESH) {
+            hr_ema = HR_EMA_ALPHA * hr + (1.0f - HR_EMA_ALPHA) * hr_ema;
+            ppg_hr = (uint8_t)(hr_ema + 0.5f);
+            if (ppg_hr < 1) ppg_hr = 1;
+            marker_interval = (uint32_t)(6000.0f / hr_ema);
+            if (marker_interval < 1) marker_interval = 1;
+            marker_counter = 0;
+            no_signal_count = 0;
+            fft_valid = true;
+        } else {
+            no_signal_count++;
+            fft_valid = false;
+            if (no_signal_count >= TIMEOUT_BLANK) ppg_hr = 0;
+        }
     }
 
-    if (amp_positive < 20.0f) amp_positive = 20.0f;
-    if (amp_negative < 20.0f) amp_negative = 20.0f;
-    pos_th = amp_positive * THRESH_RATIO;
-    neg_th = amp_negative * THRESH_RATIO;
+    dc_ir_slow = 0.999f * dc_ir_slow + 0.001f * x;
 
-    switch (track_state) {
-        case TRACK_IDLE:
-            if (ac_ir > pos_th) {
-                track_state = TRACK_PEAK;
-                track_val = ac_ir;
-                track_pos = current_idx;
-            } else if (ac_ir < -neg_th) {
-                track_state = TRACK_TROUGH;
-                track_val = ac_ir;
-                track_pos = current_idx;
-            }
-            break;
-
-        case TRACK_PEAK:
-            if (ac_ir > track_val) {
-                track_val = ac_ir;
-                track_pos = current_idx;
-            }
-            if (ac_ir < pos_th) {
-                track_state = TRACK_IDLE;
-                process_peak(track_pos, track_val);
-            }
-            break;
-
-        case TRACK_TROUGH:
-            if (ac_ir < track_val) {
-                track_val = ac_ir;
-                track_pos = current_idx;
-            }
-            if (ac_ir > -neg_th) {
-                track_state = TRACK_IDLE;
-                process_trough(track_pos, track_val);
-            }
-            break;
-    }
-
-    uint32_t expected = (last_good_interval > 0) ? (uint32_t)last_good_interval : 42;
-    if (sample_counter - last_good_peak_time > 2 * expected) {
-        amp_positive = 30.0f;
-        amp_negative = 30.0f;
-        pos_th = 15.0f;
-        neg_th = 15.0f;
-        motion_active = true;
-        trough_hr = 0.0f;
-    }
-    sample_counter++;
-
-    proc_smooth = 0.8f * proc_smooth + 0.2f * ac_ir;
+    proc_smooth = 0.8f * proc_smooth + 0.2f * y_dc;
 
     bool beat = false;
     uint8_t beat_type = 0;
-    if (marker_interval > 0) {
+    if (marker_interval > 0 && ppg_hr > 0) {
         marker_counter++;
         if (marker_counter >= marker_interval) {
-            marker_counter -= marker_interval;
+            marker_counter = 0;
             beat = true;
-            beat_type = motion_active ? 2 : 1;
+            beat_type = fft_valid ? 1 : 2;
         }
     }
 
