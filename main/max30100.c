@@ -19,7 +19,7 @@ static i2c_master_bus_handle_t bus_handle;
 static i2c_master_dev_handle_t dev_handle;
 
 static uint8_t current_ir_idx  = MAX30100_AGC_INIT_CURRENT;
-static uint8_t current_red_idx = MAX30100_AGC_INIT_CURRENT - 1;
+static uint8_t current_red_idx = MAX30100_AGC_RED_INIT_CURRENT;
 
 // AGC 内部状态
 static uint16_t agc_ir_buffer[MAX30100_AGC_WINDOW_SIZE];
@@ -112,7 +112,7 @@ uint8_t MAX30100_ReadFifo(uint16_t *ir, uint16_t *red)
 void MAX30100_AutoAdjust_Init(void)
 {
     current_ir_idx  = MAX30100_AGC_INIT_CURRENT;
-    current_red_idx = MAX30100_AGC_INIT_CURRENT - 1;
+    current_red_idx = MAX30100_AGC_RED_INIT_CURRENT;
 
     agc_buffer_idx = 0;
     agc_buffer_cnt = 0;
@@ -169,6 +169,12 @@ void MAX30100_AutoAdjust_Run(float dcw_ir, float dcw_red, uint32_t now_ms)
     if (ir_med >= MAX30100_AGC_SAT_THRESHOLD) {
         current_ir_idx = (current_ir_idx >= 3)
                          ? (current_ir_idx - 3) : 0;
+        goto write_led;
+    }
+
+    if (dcw_red >= MAX30100_AGC_SAT_THRESHOLD) {
+        current_red_idx = (current_red_idx >= 3)
+                          ? (current_red_idx - 3) : 0;
         goto write_led;
     }
 

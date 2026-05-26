@@ -2,6 +2,7 @@
 #include "freertos/task.h"
 
 #include "ble.h"
+#include "driver/uart.h"
 
 #include "display.h"
 #include "key.h"
@@ -47,6 +48,7 @@ static void vPpgTask(void *pvParameters)
     TickType_t xIdleStart = 0;
     uint16_t ir[MAX30100_FIFO_DEPTH];
     uint16_t red[MAX30100_FIFO_DEPTH];
+    static float dc_ir = 0, dc_red = 0;
 
     MAX30100_AutoAdjust_Init();
 
@@ -59,6 +61,8 @@ static void vPpgTask(void *pvParameters)
             {
                 uint8_t n = MAX30100_ReadFifo(ir, red);
                 for (int i = 0; i < n; i++) {
+                    dc_ir  = 0.999f * dc_ir  + 0.001f * ir[i];
+                    dc_red = 0.999f * dc_red + 0.001f * red[i];
                     MAX30100_AutoAdjust_FeedSample(ir[i]);
                     PPG_PushSample(ir[i], red[i]);
                     PPG_V2_Process(ir[i], red[i]);
@@ -74,7 +78,7 @@ static void vPpgTask(void *pvParameters)
                     xIdleStart = 0;
                 }
 
-                MAX30100_AutoAdjust_Run(0, 0, now_ms);
+                MAX30100_AutoAdjust_Run(dc_ir, dc_red, now_ms);
                 break;
             }
 
@@ -135,6 +139,18 @@ void app_main(void)
     Display_Init();
     Key_Init();
     MAX30100_Init();
+
+    uart_config_t uart_cfg = {
+        .baud_rate = 921600,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    };
+    uart_param_config(UART_NUM_1, &uart_cfg);
+    uart_set_pin(UART_NUM_1, 21, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_driver_install(UART_NUM_1, 256, 0, 0, NULL, 0);
+
     xTaskCreatePinnedToCore(MainTask, "MainTask", 4096, NULL, 1, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 6144, NULL, 2, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vKeyTask, "KeyTask", 2048, NULL, 1, NULL, tskNO_AFFINITY);

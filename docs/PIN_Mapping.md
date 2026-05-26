@@ -22,3 +22,9 @@
 |--------|------------|-------------|
 | MAX30100 IIC SCL | PIN 18 | ESP32 IIC SCL |
 | MAX30100 IIC SDA | PIN 8 | ESP32 IIC SDA |
+
+## UART1 (Raw Data Output to PC)
+
+| Signal | IO MUX Pin | Baud Rate | Data Format |
+|--------|------------|-----------|-------------|
+| TX (ESP32 → PC USB-UART) | GPIO 21 | 921600 | `RAW,<count>,<ir_raw>,<y_dc>\n` |

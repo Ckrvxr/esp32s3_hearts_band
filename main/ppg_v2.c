@@ -1,5 +1,6 @@
 #include <math.h>
 #include <string.h>
+#include "driver/uart.h"
 #include "ppg.h"
 #include "ppg_v2.h"
 
@@ -88,7 +89,7 @@ bool PPG_V2_HasContact(void)
 
 void PPG_V2_Process(uint16_t ir_raw, uint16_t red_raw)
 {
-    (void)red_raw;
+
     float x = (float)ir_raw;
 
     float y_dc = x - x_prev + 0.97f * dc_block_y;
@@ -168,4 +169,10 @@ void PPG_V2_Process(uint16_t ir_raw, uint16_t red_raw)
     ppg_proc_buf[idx] = proc_smooth;
     ppg_beat_buf[idx] = beat ? beat_type : 0;
     xSemaphoreGive(ppg_mutex);
+
+    char line[64];
+    int len = snprintf(line, sizeof(line),
+        "IR,RED,%u,%u\n",
+        ir_raw, red_raw);
+    uart_write_bytes(UART_NUM_1, line, len);
 }

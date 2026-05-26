@@ -17,5 +17,6 @@
   "editor.tokenColorCustomizations": {
     "comments": "",
     "textMateRules": []
-  }
+  },
+  "idf.monitorPort": "COM4"
 }

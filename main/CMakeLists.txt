@@ -16,6 +16,6 @@ idf_component_register(
     INCLUDE_DIRS
         "."
         "u8g2-master/csrc"
-    REQUIRES bt nvs_flash esp_driver_gpio
+    REQUIRES bt nvs_flash esp_driver_gpio esp_driver_uart
     PRIV_REQUIRES esp_driver_i2c
 )
