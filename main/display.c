@@ -12,6 +12,7 @@
 
 #include "display.h"
 #include "ppg.h"
+#include "ppg_v2.h"
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
 #define I2C_MASTER_SCL      4
@@ -156,11 +157,6 @@ static void Display_Draw_PpgRaw6sAvg(void)
 
     u8g2_DrawFrame(&u8g2, PPG_PLOT_X - 1, PPG_PLOT_Y - 1, PPG_PLOT_W + 2, PPG_PLOT_H + 2);
 
-    for (int gy = 1; gy < 4; gy++) {
-        int y = PPG_PLOT_Y + (PPG_PLOT_H * gy) / 4;
-        u8g2_DrawHLine(&u8g2, PPG_PLOT_X, y, PPG_PLOT_W);
-    }
-
     uint16_t count, head;
     uint16_t ir_min = 0xFFFF, ir_max = 0;
     uint16_t red_min = 0xFFFF, red_max = 0;
@@ -272,11 +268,6 @@ static void Display_Draw_PpgRaw1s(void)
 
     u8g2_DrawFrame(&u8g2, R1S_PLOT_X - 1, R1S_PLOT_Y - 1, R1S_PLOT_W + 2, R1S_PLOT_H + 2);
 
-    for (int gy = 1; gy < 4; gy++) {
-        int y = R1S_PLOT_Y + (R1S_PLOT_H * gy) / 4;
-        u8g2_DrawHLine(&u8g2, R1S_PLOT_X, y, R1S_PLOT_W);
-    }
-
     uint16_t count, head;
     uint16_t ir_min = 0xFFFF, ir_max = 0;
     uint16_t red_min = 0xFFFF, red_max = 0;
@@ -370,12 +361,6 @@ static void Display_Draw_Processed(void)
 #define PDC_PLOT_H     44
 
     u8g2_DrawFrame(&u8g2, PDC_PLOT_X - 1, PDC_PLOT_Y - 1, PDC_PLOT_W + 2, PDC_PLOT_H + 2);
-
-    for (int gy = 1; gy < 4; gy++) {
-        int y = PDC_PLOT_Y + (PDC_PLOT_H * gy) / 4;
-        u8g2_DrawHLine(&u8g2, PDC_PLOT_X, y, PDC_PLOT_W);
-    }
-
     uint16_t pcount;
     uint16_t phead;
     {
@@ -405,6 +390,15 @@ static void Display_Draw_Processed(void)
     if (p_abs < 1.0f) p_abs = 1.0f;
     float scale = (PDC_PLOT_H / 2.0f - 1.0f) / p_abs;
     int y_center = PDC_PLOT_Y + PDC_PLOT_H / 2;
+
+    float pos_th, neg_th;
+    PPG_V2_GetThresholds(&pos_th, &neg_th);
+    int y_pos = y_center - (int)(pos_th * scale);
+    int y_neg = y_center + (int)(neg_th * scale);
+    if (y_pos >= PDC_PLOT_Y && y_pos < PDC_PLOT_Y + PDC_PLOT_H)
+        u8g2_DrawHLine(&u8g2, PDC_PLOT_X, y_pos, PDC_PLOT_W);
+    if (y_neg >= PDC_PLOT_Y && y_neg < PDC_PLOT_Y + PDC_PLOT_H)
+        u8g2_DrawHLine(&u8g2, PDC_PLOT_X, y_neg, PDC_PLOT_W);
 
     uint16_t pstart = (pcount <= PDC_PLOT_W) ? 0 : (phead + PPG_SAMPLE_BUF - pcount) % PPG_SAMPLE_BUF;
     uint16_t pplot_n = pcount;

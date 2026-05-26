@@ -234,6 +234,12 @@ bool PPG_V2_HasContact(void)
     return dc_ir_slow > 2000.0f;
 }
 
+void PPG_V2_GetThresholds(float *pos, float *neg)
+{
+    if (pos) *pos = pos_th;
+    if (neg) *neg = neg_th;
+}
+
 void PPG_V2_Process(uint16_t ir_raw, uint16_t red_raw)
 {
     float x_ir = (float)ir_raw;

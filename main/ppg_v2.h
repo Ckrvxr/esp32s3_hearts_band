@@ -5,3 +5,4 @@
 void PPG_V2_Init(void);
 void PPG_V2_Process(uint16_t ir_raw, uint16_t red_raw);
 bool PPG_V2_HasContact(void);
+void PPG_V2_GetThresholds(float *pos, float *neg);
