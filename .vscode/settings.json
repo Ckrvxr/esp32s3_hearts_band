@@ -18,5 +18,5 @@
     "comments": "",
     "textMateRules": []
   },
-  "idf.monitorPort": "COM4"
+  "idf.monitorPort": "COM3"
 }

@@ -119,8 +119,7 @@ void MAX30100_AutoAdjust_Init(void)
 
     MAX30100_WriteReg(MAX30100_REG_LED_CONFIG,
                       (current_ir_idx << 4) | current_red_idx);
-    ESP_LOGI(TAG, "AGC init: IR=0x%X RED=0x%X",
-             current_ir_idx, current_red_idx);
+    // ESP_LOGI(TAG, "AGC init: IR=0x%X RED=0x%X", current_ir_idx, current_red_idx);
 }
 
 void MAX30100_AutoAdjust_FeedSample(uint16_t ir)

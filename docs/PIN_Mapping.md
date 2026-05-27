@@ -7,7 +7,7 @@
 | SSD1315 IIC SCL | PIN 4 | ESP32 IIC SCL |
 | SSD1315 IIC SDA | PIN 5 | ESP32 IIC SDA |
 
-## Key
+## Key GPIO
 
 | Key Side| Function | IO MUX Pin | ESP32 Side |
 |-----|----------|------------|-------------|
@@ -25,6 +25,6 @@
 
 ## UART1 (Raw Data Output to PC)
 
-| Signal | IO MUX Pin | Baud Rate | Data Format |
+| Signal | IO MUX Pin | Baud Rate | Data Format (CSV) |
 |--------|------------|-----------|-------------|
 | TX (ESP32 → PC USB-UART) | GPIO 21 | 921600 | `RAW,<count>,<ir_raw>,<y_dc>\n` |
