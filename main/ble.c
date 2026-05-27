@@ -21,10 +21,13 @@ static const char *TAG = "BLE";
 static uint16_t g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t g_chr_handle;
 
+uint32_t g_display_passkey;
+bool g_show_passkey;
+bool g_is_bonded;
+
 // ── GATT Access Callback ──────────────────────────────────────────
 // Handles read/write operations on the characteristic.
-static int ble_svc_access_cb(uint16_t conn_handle, uint16_t attr_handle,
-                             struct ble_gatt_access_ctxt *ctxt, void *arg)
+static int ble_svc_access_cb(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_CHR:
@@ -118,11 +121,16 @@ int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(TAG, "Disconnected, reason=%d", event->disconnect.reason);
         g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        g_show_passkey = false;
         ble_advertise();
         return 0;
 
     case BLE_GAP_EVENT_ENC_CHANGE:
         ESP_LOGI(TAG, "Encryption change: status=%d", event->enc_change.status);
+        if (event->enc_change.status == 0) {
+            g_show_passkey = false;
+            g_is_bonded = true;
+        }
         return 0;
 
     case BLE_GAP_EVENT_REPEAT_PAIRING:
@@ -142,13 +150,9 @@ int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
         pkey.action = event->passkey.params.action;
 
         if (event->passkey.params.action == BLE_SM_IOACT_DISP) {
-            // Device displays passkey, user types it on phone
-            // Generate a random 6-digit passkey
-            uint32_t passkey = esp_random() % 1000000;
-            ESP_LOGI(TAG, "=== Passkey: %06" PRIu32 " ===", passkey);
-            ESP_LOGI(TAG, "Type this code on your phone");
-            // TODO: Display passkey on OLED via display module callback
-            pkey.passkey = passkey;
+            g_show_passkey = true;
+            ESP_LOGI(TAG, "=== Passkey: %06" PRIu32 " ===", g_display_passkey);
+            pkey.passkey = g_display_passkey;
             int rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
             ESP_LOGI(TAG, "ble_sm_inject_io (disp) result: %d", rc);
         } else if (event->passkey.params.action == BLE_SM_IOACT_INPUT) {
@@ -213,7 +217,8 @@ static void ble_on_sync(void)
         return;
     }
 
-    ESP_LOGI(TAG, "Host synced");
+    g_display_passkey = esp_random() % 1000000;
+    ESP_LOGI(TAG, "Host synced, passkey: %06" PRIu32, g_display_passkey);
     ble_advertise();
 }
 
@@ -260,6 +265,33 @@ static void gatt_svr_init(void)
     if (rc != 0) {
         ESP_LOGE(TAG, "GATT add failed: %d", rc);
     }
+}
+
+// ── Passkey Display ──────────────────────────────────────────────
+void Ble_Driver_GetMac(char *buf, size_t len)
+{
+    uint8_t mac[6];
+    if (ble_hs_id_copy_addr(BLE_OWN_ADDR_PUBLIC, mac, NULL) == 0) {
+        snprintf(buf, len, "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    } else {
+        snprintf(buf, len, "N/A");
+    }
+}
+
+void Ble_Driver_ClearBonds(void)
+{
+    ESP_LOGI(TAG, "Clearing all bonds...");
+    ble_store_clear();
+    g_show_passkey = false;
+    g_is_bonded = false;
+    g_display_passkey = esp_random() % 1000000;
+    if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+        ble_gap_terminate(g_conn_handle, 0x13);
+    } else {
+        ble_advertise();
+    }
+    ESP_LOGI(TAG, "Bonds cleared, new passkey: %06" PRIu32, g_display_passkey);
 }
 
 // ── Public API ────────────────────────────────────────────────────
