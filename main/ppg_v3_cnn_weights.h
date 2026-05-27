@@ -1,3 +1,5 @@
+#pragma once
+
 #define CNN_WINDOW_SIZE 100
 
 const float conv1_weight[8][1][7] = {
@@ -382,5 +384,3 @@ const float fc1_bias[8] = {0.197679f, 0.169009f, 0.144149f, 0.381641f, -0.128882
 
 const float fc2_weight[8] = {0.320221f, -0.445213f, 0.525077f, 0.523565f, -0.539777f, -0.829193f, -0.669676f, 1.046569f};
 const float fc2_bias = -0.299994f;
-
-#endif

@@ -8,7 +8,7 @@
 #include "key.h"
 #include "max30100.h"
 #include "ppg.h"
-#include "ppg_v2.h"
+#include "ppg_v3.h"
 
 static void MainTask(void *pvParameters)
 {
@@ -43,7 +43,7 @@ static void vKeyTask(void *pvParameters)
 static void vPpgTask(void *pvParameters)
 {
     PPG_Init();
-    PPG_V2_Init();
+    PPG_V3_Init();
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t xIdleStart = 0;
     uint16_t ir[MAX30100_FIFO_DEPTH];
@@ -65,10 +65,10 @@ static void vPpgTask(void *pvParameters)
                     dc_red = 0.999f * dc_red + 0.001f * red[i];
                     MAX30100_AutoAdjust_FeedSample(ir[i]);
                     PPG_PushSample(ir[i], red[i]);
-                    PPG_V2_Process(ir[i], red[i]);
+                    PPG_V3_Process(ir[i], red[i]);
                 }
 
-                if (!PPG_V2_HasContact()) {
+                if (!PPG_V3_HasContact()) {
                     if (!xIdleStart) xIdleStart = now;
                     if ((now - xIdleStart) >= pdMS_TO_TICKS(1000)) {
                         g_max30100_state = MAX30100_STATE_IDLE;
@@ -87,10 +87,10 @@ static void vPpgTask(void *pvParameters)
                 uint8_t n = MAX30100_ReadFifo(ir, red);
                 for (int i = 0; i < n; i++) {
                     PPG_PushSample(ir[i], red[i]);
-                    PPG_V2_Process(ir[i], red[i]);
+                    PPG_V3_Process(ir[i], red[i]);
                 }
 
-                if (PPG_V2_HasContact()) {
+                if (PPG_V3_HasContact()) {
                     g_max30100_state = MAX30100_STATE_NORMAL;
                     break;
                 }
@@ -119,10 +119,10 @@ static void vPpgTask(void *pvParameters)
 
                     uint8_t n = MAX30100_ReadFifo(ir, red);
                     for (int i = 0; i < n; i++) {
-                        PPG_V2_Process(ir[i], red[i]);
+                        PPG_V3_Process(ir[i], red[i]);
                     }
 
-                    if (PPG_V2_HasContact()) {
+                    if (PPG_V3_HasContact()) {
                         Display_Sleep(false);
                         g_max30100_state = MAX30100_STATE_NORMAL;
                     } else {

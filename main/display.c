@@ -12,7 +12,7 @@
 
 #include "display.h"
 #include "ppg.h"
-#include "ppg_v2.h"
+#include "ppg_v3.h"
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
 #define I2C_MASTER_SCL      4
