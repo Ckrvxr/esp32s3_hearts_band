@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define BLE_DEVICE_NAME "Hearts"
+#define BLE_DEVICE_NAME "409 Hearts Bond"
 
 extern uint32_t g_display_passkey;
 extern bool g_show_passkey;

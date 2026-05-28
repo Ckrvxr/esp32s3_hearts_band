@@ -61,9 +61,9 @@ static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
         .characteristics = (struct ble_gatt_chr_def[]) { {
             .uuid = BLE_UUID16_DECLARE(0xFFE1),
             .access_cb = ble_svc_access_cb,
-            .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC |
-                     BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC |
-                     BLE_GATT_CHR_F_NOTIFY,
+            .flags = BLE_GATT_CHR_F_READ | 
+                    BLE_GATT_CHR_F_WRITE | 
+                    BLE_GATT_CHR_F_NOTIFY,
             .val_handle = &g_chr_handle,
         }, { 0 } },
     }, { 0 }
@@ -81,6 +81,9 @@ static void ble_advertise(void)
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.tx_pwr_lvl_is_present = 1;
     fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
+    fields.uuids16 = (ble_uuid16_t[]) { BLE_UUID16_INIT(0xFFE0) };
+    fields.num_uuids16 = 1;
+    fields.uuids16_is_complete = 1;
     fields.name = (uint8_t *)BLE_DEVICE_NAME;
     fields.name_len = strlen(BLE_DEVICE_NAME);
     fields.name_is_complete = 1;
@@ -317,9 +320,9 @@ void Ble_Driver_Init(void)
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
     // SMP: DisplayOnly + Legacy = Passkey Entry (device displays, user types on phone)
-    ble_hs_cfg.sm_io_cap = 0;           // BLE_HS_IO_DISP_ONLY: I have a display, no keyboard
-    ble_hs_cfg.sm_bonding = 1;          // Enable persistent bonding
-    ble_hs_cfg.sm_mitm = 1;             // MITM protection via passkey
+    ble_hs_cfg.sm_io_cap = 3;           // 3 = BLE_HS_IO_NO_INPUT_OUTPUT (不需要输入输出)
+    ble_hs_cfg.sm_bonding = 0;          // 暂时关闭持久化绑定，方便调试
+    ble_hs_cfg.sm_mitm = 0;             // 关闭 MITM 保护
     ble_hs_cfg.sm_sc = 0;               // Legacy pairing
 
     // CRITICAL: Distribute encryption keys during bonding.
