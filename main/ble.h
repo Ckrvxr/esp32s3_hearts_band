@@ -12,3 +12,5 @@ void Ble_Driver_Send(const uint8_t *data, uint16_t len);
 bool Ble_Driver_IsConnected(void);
 void Ble_Driver_GetMac(char *buf, size_t len);
 void Ble_Driver_ClearBonds(void);
+void Ble_Driver_SendAck(const char *ack_type, const char *uuid, const char *type, int time);
+void Ble_Driver_ReportHealth(uint8_t hr, uint8_t spo2);

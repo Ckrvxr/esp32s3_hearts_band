@@ -9,6 +9,7 @@
 #include "max30100.h"
 #include "ppg.h"
 #include "ppg_v3.h"
+#include "timer.h"
 
 static void MainTask(void *pvParameters)
 {
@@ -134,7 +135,26 @@ static void vPpgTask(void *pvParameters)
             }
         }
 
+        // 1-second interval housekeeping (50Hz × 20ms = 1000ms)
+        static uint32_t report_counter = 0;
+        report_counter++;
+        if (report_counter >= 50) {
+            report_counter = 0;
+            if (Ble_Driver_IsConnected()) {
+                Ble_Driver_ReportHealth(ppg_hr, ppg_spo2);
+            }
+        }
+
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(20));
+    }
+}
+
+static void vTimerTask(void *pvParameters)
+{
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    while (1) {
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
+        Timer_CheckExpiry();
     }
 }
 
@@ -143,6 +163,7 @@ void app_main(void)
     Display_Init();
     Key_Init();
     MAX30100_Init();
+    Timer_Init();
 
     uart_config_t uart_cfg = {
         .baud_rate = 921600,
@@ -159,6 +180,7 @@ void app_main(void)
     xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 6144, NULL, 2, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vKeyTask, "KeyTask", 2048, NULL, 1, NULL, tskNO_AFFINITY);
     xTaskCreatePinnedToCore(vPpgTask, "PpgTask", 4096, NULL, 1, NULL, tskNO_AFFINITY);
+    xTaskCreatePinnedToCore(vTimerTask, "TimerTask", 2048, NULL, 1, NULL, tskNO_AFFINITY);
 
     Ble_Driver_Init();
 }

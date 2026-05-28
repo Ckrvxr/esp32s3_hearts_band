@@ -27,6 +27,13 @@ static float hr_interval_sma;
 static float dc_ir_slow;
 static float proc_smooth;
 
+// SpO2 tracking
+static float spo2_ac_ir_rms;
+static float spo2_ac_red_rms;
+static float spo2_dc_ir;
+static float spo2_dc_red;
+static uint32_t spo2_sample_count;
+
 // CNN intermediate buffers
 static float in[2][CNN_WINDOW_SIZE];
 static float a1[8][CNN_WINDOW_SIZE];
@@ -185,7 +192,14 @@ void PPG_V3_Init(void)
     hr_interval_sma = 0.0f;
     dc_ir_slow = 0.0f;
     proc_smooth = 0.0f;
+
+    spo2_ac_ir_rms = 0.0f;
+    spo2_ac_red_rms = 0.0f;
+    spo2_dc_ir = 0.0f;
+    spo2_dc_red = 0.0f;
+    spo2_sample_count = 0;
     ppg_hr = 0;
+    ppg_spo2 = 0;
 }
 
 void PPG_V3_Process(uint16_t ir_raw, uint16_t red_raw)
@@ -199,6 +213,15 @@ void PPG_V3_Process(uint16_t ir_raw, uint16_t red_raw)
     float r = (float)red_raw;
     red_emean = HP_ALPHA * r + (1.0f - HP_ALPHA) * red_emean;
     float red_hp = r - red_emean;
+
+    // SpO2: track AC RMS and DC of both channels
+    float abs_ir_hp = fabsf(ir_hp);
+    float abs_red_hp = fabsf(red_hp);
+    spo2_ac_ir_rms = 0.995f * spo2_ac_ir_rms + 0.005f * abs_ir_hp;
+    spo2_ac_red_rms = 0.995f * spo2_ac_red_rms + 0.005f * abs_red_hp;
+    spo2_dc_ir = 0.999f * spo2_dc_ir + 0.001f * x;
+    spo2_dc_red = 0.999f * spo2_dc_red + 0.001f * r;
+    spo2_sample_count++;
 
     // Store in circular buffer
     ir_hp_buf[buf_idx] = ir_hp;
@@ -255,6 +278,19 @@ void PPG_V3_Process(uint16_t ir_raw, uint16_t red_raw)
                 if (ppg_hr > 240) ppg_hr = 240;
             }
             last_beat_sample = sample_count;
+        }
+
+        // SpO2 calculation (update every frame ≈ 1s at CNN_WINDOW_SIZE=200, 50Hz = 4s)
+        if (spo2_sample_count > 0 && spo2_dc_ir > 100.0f && spo2_dc_red > 100.0f) {
+            float ratio_ir = spo2_ac_ir_rms / spo2_dc_ir;
+            float ratio_red = spo2_ac_red_rms / spo2_dc_red;
+            if (ratio_ir > 0.0f) {
+                float r = ratio_red / ratio_ir;
+                float spo2 = 110.0f - 25.0f * r;
+                if (spo2 > 100.0f) spo2 = 100.0f;
+                if (spo2 < 70.0f) spo2 = 70.0f;
+                ppg_spo2 = (uint8_t)(spo2 + 0.5f);
+            }
         }
 
         // Write to shared display buffers

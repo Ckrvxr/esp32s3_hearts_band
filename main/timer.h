@@ -1,0 +1,15 @@
+#pragma once
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef enum {
+    TIMER_DRINK,
+    TIMER_MEDICINE,
+    TIMER_COUNT,
+} TimerType_t;
+
+void Timer_Init(void);
+void Timer_Set(TimerType_t type, uint32_t minutes);
+void Timer_Cancel(TimerType_t type);
+bool Timer_IsActive(TimerType_t type);
+void Timer_CheckExpiry(void);

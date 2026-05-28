@@ -8,6 +8,7 @@ set(COMPONENT_SRCS
     "ble.c"
     "ppg.c"
     "ppg_v3.c"
+    "timer.c"
     ${U8G2_SRCS}
 )
 
@@ -17,5 +18,5 @@ idf_component_register(
         "."
         "u8g2-master/csrc"
     REQUIRES bt nvs_flash esp_driver_gpio esp_driver_uart
-    PRIV_REQUIRES esp_driver_i2c
+    PRIV_REQUIRES esp_driver_i2c esp_timer
 )

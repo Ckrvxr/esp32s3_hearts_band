@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdbool.h>
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -13,6 +14,12 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "ble.h"
+#include "timer.h"
+#include "ppg.h"
+
+// Forward declarations for JSON helpers (defined below)
+static const char *json_get_string(const char *json, const char *key, char *out, size_t out_size);
+static bool json_get_int(const char *json, const char *key, int *out);
 
 static const char *TAG = "BLE";
 
@@ -36,6 +43,39 @@ static int ble_svc_access_cb(uint16_t conn_handle, uint16_t attr_handle, struct 
         if (rc == 0) {
             buf[len] = '\0';
             ESP_LOGI(TAG, "RX[%u]: %s", len, buf);
+
+            const char *raw = (const char *)buf;
+            char cmd[32] = {0};
+            if (!json_get_string(raw, "cmd", cmd, sizeof(cmd))) {
+                return rc;
+            }
+
+            if (strcmp(cmd, "SYNC_TIME") == 0) {
+                ESP_LOGI(TAG, "SYNC_TIME received");
+                Ble_Driver_SendAck("sync", NULL, NULL, 0);
+
+            } else if (strcmp(cmd, "SET_TIMER") == 0) {
+                char action[16] = {0}, uuid[64] = {0}, type[16] = {0};
+                int time_val = 0;
+
+                json_get_string(raw, "action", action, sizeof(action));
+                json_get_string(raw, "uuid", uuid, sizeof(uuid));
+                json_get_string(raw, "type", type, sizeof(type));
+                json_get_int(raw, "time", &time_val);
+
+                if (action[0] && uuid[0] && type[0]) {
+                    TimerType_t tt = (strcmp(type, "medicine") == 0)
+                                     ? TIMER_MEDICINE : TIMER_DRINK;
+                    const char *ts = (tt == TIMER_MEDICINE) ? "medicine" : "drink";
+                    if (strcmp(action, "set") == 0 && time_val > 0) {
+                        Timer_Set(tt, (uint32_t)time_val);
+                        Ble_Driver_SendAck("set_timer", uuid, ts, time_val);
+                    } else if (strcmp(action, "cancel") == 0) {
+                        Timer_Cancel(tt);
+                        Ble_Driver_SendAck("cancel_timer", uuid, ts, 0);
+                    }
+                }
+            }
         }
         return rc;
     }
@@ -302,4 +342,92 @@ void Ble_Driver_Send(const uint8_t *data, uint16_t len)
 bool Ble_Driver_IsConnected(void)
 {
     return g_ble_connected;
+}
+
+// ── JSON Helpers ───────────────────────────────────────────────────
+// Extract string value of "key" from JSON string.
+//   json:   {"key":"value", ...}
+//   search: "key":" then copy until closing "
+static const char *json_get_string(const char *json, const char *key, char *out, size_t out_size)
+{
+    if (!json || !key || !out || out_size == 0) return NULL;
+
+    char pattern[64];
+    int n = snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
+    if (n <= 0 || (size_t)n >= sizeof(pattern)) return NULL;
+
+    const char *p = strstr(json, pattern);
+    if (!p) return NULL;
+
+    p += n;
+    size_t i = 0;
+    while (*p && *p != '"' && i < out_size - 1) {
+        out[i++] = *p++;
+    }
+    out[i] = '\0';
+    return (i > 0) ? out : NULL;
+}
+
+// Extract integer value of "key" from JSON string.
+static bool json_get_int(const char *json, const char *key, int *out)
+{
+    if (!json || !key || !out) return false;
+
+    char pattern[64];
+    int n = snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    if (n <= 0 || (size_t)n >= sizeof(pattern)) return false;
+
+    const char *p = strstr(json, pattern);
+    if (!p) return false;
+
+    p += n;
+    while (*p == ' ' || *p == '\t') p++;
+
+    int sign = 1;
+    if (*p == '-') { sign = -1; p++; }
+
+    int val = 0;
+    if (*p < '0' || *p > '9') return false;
+    while (*p >= '0' && *p <= '9') {
+        val = val * 10 + (*p - '0');
+        p++;
+    }
+    *out = val * sign;
+    return true;
+}
+
+// ── JSON Send Helpers ──────────────────────────────────────────────
+void Ble_Driver_SendAck(const char *ack_type, const char *uuid, const char *type, int time)
+{
+    char buf[256];
+    int n;
+
+    if (uuid && type && time > 0) {
+        n = snprintf(buf, sizeof(buf),
+            "{\"cmd\":\"ACK\",\"ack_type\":\"%s\",\"uuid\":\"%s\",\"type\":\"%s\",\"time\":%d}",
+            ack_type, uuid, type, time);
+    } else if (uuid && type) {
+        n = snprintf(buf, sizeof(buf),
+            "{\"cmd\":\"ACK\",\"ack_type\":\"%s\",\"uuid\":\"%s\",\"type\":\"%s\"}",
+            ack_type, uuid, type);
+    } else {
+        n = snprintf(buf, sizeof(buf),
+            "{\"cmd\":\"ACK\",\"ack_type\":\"%s\"}",
+            ack_type);
+    }
+
+    if (n > 0) {
+        Ble_Driver_Send((const uint8_t *)buf, n);
+        ESP_LOGI(TAG, "Sent ACK(%s)", ack_type);
+    }
+}
+
+void Ble_Driver_ReportHealth(uint8_t hr, uint8_t spo2)
+{
+    if (!g_ble_connected) return;
+    char buf[64];
+    int n = snprintf(buf, sizeof(buf), "{\"spo2\":%u,\"heart\":%u}", spo2, hr);
+    if (n > 0) {
+        Ble_Driver_Send((const uint8_t *)buf, n);
+    }
 }
