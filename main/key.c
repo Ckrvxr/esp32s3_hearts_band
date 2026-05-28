@@ -6,7 +6,6 @@
 
 #include "key.h"
 #include "display.h"
-#include "ble.h"
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
 #define KEY_UP      16
@@ -165,9 +164,6 @@ void Key_Event_Handler(KeyEvent_t evt, uint8_t key_id)
                 case KEY_EVENT_DOUBLE_CLICK: ESP_LOGI(TAG, "CANCEL DOUBLE_CLICK"); break;
                 case KEY_EVENT_LONG_PRESS:
                     ESP_LOGI(TAG, "CANCEL LONG_PRESS");
-                    if (currentState == STATE_BLE_CONFIG) {
-                        Ble_Driver_ClearBonds();
-                    }
                     break;
                 default: break;
             }

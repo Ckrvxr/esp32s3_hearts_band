@@ -1,8 +1,6 @@
 #include <string.h>
-#include <inttypes.h>
 
 #include "esp_log.h"
-#include "esp_random.h"
 #include "nvs_flash.h"
 
 #include "nimble/nimble_port.h"
@@ -21,9 +19,6 @@ static const char *TAG = "BLE";
 static uint16_t g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t g_chr_handle;
 
-uint32_t g_display_passkey;
-bool g_show_passkey;
-bool g_is_bonded;
 bool g_ble_connected;
 
 // ── GATT Access Callback ──────────────────────────────────────────
@@ -53,7 +48,7 @@ static int ble_svc_access_cb(uint16_t conn_handle, uint16_t attr_handle, struct 
 }
 
 // ── GATT Service Table ────────────────────────────────────────────
-// Service 0xFFE0, Characteristic 0xFFE1 with encryption required.
+// Service 0xFFE0, Characteristic 0xFFE1 (open access).
 static const struct ble_gatt_svc_def gatt_svr_svcs[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -126,56 +121,13 @@ int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(TAG, "Disconnected, reason=%d", event->disconnect.reason);
         g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
-        g_show_passkey = false;
         g_ble_connected = false;
         ble_advertise();
         return 0;
 
     case BLE_GAP_EVENT_ENC_CHANGE:
         ESP_LOGI(TAG, "Encryption change: status=%d", event->enc_change.status);
-        if (event->enc_change.status == 0) {
-            g_show_passkey = false;
-            g_is_bonded = true;
-        }
         return 0;
-
-    case BLE_GAP_EVENT_REPEAT_PAIRING:
-        ESP_LOGI(TAG, "Repeat pairing — deleting old bond");
-        // Delete old bond and accept new pairing
-        {
-            struct ble_gap_conn_desc desc;
-            int rc = ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
-            if (rc == 0) {
-                ble_store_util_delete_peer(&desc.peer_id_addr);
-            }
-        }
-        return BLE_GAP_REPEAT_PAIRING_RETRY;
-
-    case BLE_GAP_EVENT_PASSKEY_ACTION: {
-        struct ble_sm_io pkey = { 0 };
-        pkey.action = event->passkey.params.action;
-
-        if (event->passkey.params.action == BLE_SM_IOACT_DISP) {
-            g_show_passkey = true;
-            ESP_LOGI(TAG, "=== Passkey: %06" PRIu32 " ===", g_display_passkey);
-            pkey.passkey = g_display_passkey;
-            int rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
-            ESP_LOGI(TAG, "ble_sm_inject_io (disp) result: %d", rc);
-        } else if (event->passkey.params.action == BLE_SM_IOACT_INPUT) {
-            // Phone displays passkey, user types on our device (no keyboard — reject)
-            ESP_LOGW(TAG, "Phone requests input, but we have no keyboard");
-            pkey.passkey = 0;
-            int rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
-            ESP_LOGI(TAG, "ble_sm_inject_io (input) result: %d", rc);
-        } else if (event->passkey.params.action == BLE_SM_IOACT_NUMCMP) {
-            pkey.numcmp_accept = 1;
-            int rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
-            ESP_LOGI(TAG, "ble_sm_inject_io (numcmp) result: %d", rc);
-        } else {
-            ESP_LOGW(TAG, "Unhandled passkey action: %d", event->passkey.params.action);
-        }
-        return 0;
-    }
 
     case BLE_GAP_EVENT_SUBSCRIBE:
         ESP_LOGI(TAG, "Subscribe: conn_handle=%d attr_handle=%d reason=%d "
@@ -223,8 +175,7 @@ static void ble_on_sync(void)
         return;
     }
 
-    g_display_passkey = esp_random() % 1000000;
-    ESP_LOGI(TAG, "Host synced, passkey: %06" PRIu32, g_display_passkey);
+    ESP_LOGI(TAG, "Host synced");
     ble_advertise();
 }
 
@@ -289,15 +240,12 @@ void Ble_Driver_ClearBonds(void)
 {
     ESP_LOGI(TAG, "Clearing all bonds...");
     ble_store_clear();
-    g_show_passkey = false;
-    g_is_bonded = false;
-    g_display_passkey = esp_random() % 1000000;
     if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
         ble_gap_terminate(g_conn_handle, 0x13);
     } else {
         ble_advertise();
     }
-    ESP_LOGI(TAG, "Bonds cleared, new passkey: %06" PRIu32, g_display_passkey);
+    ESP_LOGI(TAG, "Bonds cleared");
 }
 
 // ── Public API ────────────────────────────────────────────────────
@@ -319,17 +267,8 @@ void Ble_Driver_Init(void)
     ble_hs_cfg.gatts_register_cb = ble_gatts_register_cb;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
-    // SMP: DisplayOnly + Legacy = Passkey Entry (device displays, user types on phone)
-    ble_hs_cfg.sm_io_cap = 3;           // 3 = BLE_HS_IO_NO_INPUT_OUTPUT (不需要输入输出)
-    ble_hs_cfg.sm_bonding = 0;          // 暂时关闭持久化绑定，方便调试
-    ble_hs_cfg.sm_mitm = 0;             // 关闭 MITM 保护
-    ble_hs_cfg.sm_sc = 0;               // Legacy pairing
-
-    // CRITICAL: Distribute encryption keys during bonding.
-    // Without these flags, the phone can't store the bond even when
-    // sm_bonding=1, causing "key incorrect" on reconnection.
-    ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC;
-    ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC;
+    // No security (open access, no bonding/pairing)
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
 
     // Register GATT services
     gatt_svr_init();

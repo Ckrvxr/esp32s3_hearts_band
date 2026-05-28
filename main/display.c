@@ -555,39 +555,7 @@ static void Display_Draw_TimerDone(void)
     u8g2_DrawStr(&u8g2, 36, 60, "Time Over");
 }
 
-// ── BLE Config Page ─────────────────────────────────────────────────
-static void Display_Draw_BleConfig(void)
-{
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(&u8g2, 8, 10, "Bluetooth Config");
-    u8g2_DrawHLine(&u8g2, 0, 15, 128);
 
-    char line[32];
-    const char *status;
-    if (!g_ble_connected)
-        status = "DISCONNECTED";
-    else if (g_show_passkey)
-        status = "PAIRING";
-    else if (g_is_bonded)
-        status = "CONNECTED";
-    else
-        status = "NOT PAIRED";
-    u8g2_DrawStr(&u8g2, 8, 30, status);
-
-    char mac[18];
-    Ble_Driver_GetMac(mac, sizeof(mac));
-    u8g2_DrawStr(&u8g2, 8, 42, mac);
-
-    if (g_show_passkey) {
-        snprintf(line, sizeof(line), "Enter: %06" PRIu32, g_display_passkey);
-    } else if (g_is_bonded) {
-        snprintf(line, sizeof(line), "[CANC] Clear Bonds");
-    } else {
-        snprintf(line, sizeof(line), "Passkey: %06" PRIu32, g_display_passkey);
-    }
-    u8g2_DrawStr(&u8g2, 8, 54, line);
-}
-// --------------------------------------------------- Timer Pages -----------------------------------------------------
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
 void Display_Sleep(bool sleep_en)
@@ -632,9 +600,6 @@ void Display_Refresh(void)
             break;
         case STATE_TIMER_DONE:
             Display_Draw_TimerDone();
-            break;
-        case STATE_BLE_CONFIG:
-            Display_Draw_BleConfig();
             break;
         default:
             break;

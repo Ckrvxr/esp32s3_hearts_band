@@ -11,7 +11,6 @@ typedef enum {
     STATE_TIMER_SET,
     STATE_TIMER_RUNNING,
     STATE_TIMER_DONE,
-    STATE_BLE_CONFIG,
     STATE_COUNT,
 } DisplayState_t;
 
