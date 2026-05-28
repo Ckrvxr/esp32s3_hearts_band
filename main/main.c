@@ -141,7 +141,7 @@ static void vPpgTask(void *pvParameters)
         if (report_counter >= 50) {
             report_counter = 0;
             if (Ble_Driver_IsConnected()) {
-                Ble_Driver_ReportHealth(ppg_hr, ppg_spo2);
+                Ble_Driver_ReportHealth(PPG_GetHR(), PPG_GetSpO2());
             }
         }
 

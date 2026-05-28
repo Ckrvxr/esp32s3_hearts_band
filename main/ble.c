@@ -15,7 +15,6 @@
 
 #include "ble.h"
 #include "timer.h"
-#include "ppg.h"
 
 // Forward declarations for JSON helpers (defined below)
 static const char *json_get_string(const char *json, const char *key, char *out, size_t out_size);

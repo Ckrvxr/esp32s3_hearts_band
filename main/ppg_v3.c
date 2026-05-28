@@ -198,8 +198,8 @@ void PPG_V3_Init(void)
     spo2_dc_ir = 0.0f;
     spo2_dc_red = 0.0f;
     spo2_sample_count = 0;
-    ppg_hr = 0;
-    ppg_spo2 = 0;
+    PPG_SetHR(0);
+    PPG_SetSpO2(0);
 }
 
 void PPG_V3_Process(uint16_t ir_raw, uint16_t red_raw)
@@ -273,9 +273,10 @@ void PPG_V3_Process(uint16_t ir_raw, uint16_t red_raw)
                 else
                     hr_interval_sma = HR_SMA * interval + (1.0f - HR_SMA) * hr_interval_sma;
                 float hr = 6000.0f / hr_interval_sma;
-                ppg_hr = (uint8_t)(hr + 0.5f);
-                if (ppg_hr < 30) ppg_hr = 30;
-                if (ppg_hr > 240) ppg_hr = 240;
+                hr = hr + 0.5f;
+                if (hr < 30) hr = 30;
+                if (hr > 240) hr = 240;
+                PPG_SetHR((uint8_t)hr);
             }
             last_beat_sample = sample_count;
         }
@@ -289,16 +290,12 @@ void PPG_V3_Process(uint16_t ir_raw, uint16_t red_raw)
                 float spo2 = 110.0f - 25.0f * r;
                 if (spo2 > 100.0f) spo2 = 100.0f;
                 if (spo2 < 70.0f) spo2 = 70.0f;
-                ppg_spo2 = (uint8_t)(spo2 + 0.5f);
+                PPG_SetSpO2((uint8_t)(spo2 + 0.5f));
             }
         }
 
         // Write to shared display buffers
-        uint16_t idx = (ppg_buf_head == 0) ? (PPG_SAMPLE_BUF - 1) : (ppg_buf_head - 1);
-        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
-        ppg_proc_buf[idx] = proc_smooth;
-        ppg_beat_buf[idx] = beat ? 1 : 0;
-        xSemaphoreGive(ppg_mutex);
+        PPG_WriteProcessedSample(proc_smooth, beat ? 1 : 0);
     }
 
     dc_ir_slow = 0.999f * dc_ir_slow + 0.001f * x;

@@ -156,21 +156,21 @@ static void Display_Draw_PpgRaw6sAvg(void)
     uint16_t red_min = 0xFFFF, red_max = 0;
     uint16_t last_ir = 0, last_red = 0;
     {
-        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
-        count = ppg_buf_count;
-        head = ppg_buf_head;
+        PPG_Lock();
+        count = PPG_GetCount();
+        head = PPG_GetHead();
         for (uint16_t i = 0; i < count; i++) {
             uint16_t idx = (head + PPG_SAMPLE_BUF - count + i) % PPG_SAMPLE_BUF;
-            uint16_t v = ppg_ir_buf[idx];
+            uint16_t v = PPG_ReadIR(idx);
             if (v < ir_min) ir_min = v;
             if (v > ir_max) ir_max = v;
-            v = ppg_red_buf[idx];
+            v = PPG_ReadRED(idx);
             if (v < red_min) red_min = v;
             if (v > red_max) red_max = v;
-            last_ir = ppg_ir_buf[idx];
-            last_red = ppg_red_buf[idx];
+            last_ir = PPG_ReadIR(idx);
+            last_red = PPG_ReadRED(idx);
         }
-        xSemaphoreGive(ppg_mutex);
+        PPG_Unlock();
     }
 
     if (count < 2) return;
@@ -197,16 +197,16 @@ static void Display_Draw_PpgRaw6sAvg(void)
         uint16_t n_win = 0;
         uint8_t beat = 0;
 
-        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+        PPG_Lock();
         for (uint16_t j = lo; j < hi; j++) {
             uint16_t idx = (start + j) % PPG_SAMPLE_BUF;
-            ir_sum += ppg_ir_buf[idx];
-            re_sum += ppg_red_buf[idx];
+            ir_sum += PPG_ReadIR(idx);
+            re_sum += PPG_ReadRED(idx);
             n_win++;
-            uint8_t b = ppg_beat_buf[idx];
+            uint8_t b = PPG_ReadBeat(idx);
             if (b) beat = b;
         }
-        xSemaphoreGive(ppg_mutex);
+        PPG_Unlock();
 
         if (n_win == 0) continue;
 
@@ -267,22 +267,22 @@ static void Display_Draw_PpgRaw1s(void)
     uint16_t red_min = 0xFFFF, red_max = 0;
     uint16_t last_ir = 0, last_red = 0;
     {
-        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
-        count = ppg_buf_count;
-        head = ppg_buf_head;
+        PPG_Lock();
+        count = PPG_GetCount();
+        head = PPG_GetHead();
         uint16_t n_scan = (count < R1S_WINDOW) ? count : R1S_WINDOW;
         for (uint16_t i = 0; i < n_scan; i++) {
             uint16_t idx = (head + PPG_SAMPLE_BUF - n_scan + i) % PPG_SAMPLE_BUF;
-            uint16_t v = ppg_ir_buf[idx];
+            uint16_t v = PPG_ReadIR(idx);
             if (v < ir_min) ir_min = v;
             if (v > ir_max) ir_max = v;
-            v = ppg_red_buf[idx];
+            v = PPG_ReadRED(idx);
             if (v < red_min) red_min = v;
             if (v > red_max) red_max = v;
-            last_ir = ppg_ir_buf[idx];
-            last_red = ppg_red_buf[idx];
+            last_ir = PPG_ReadIR(idx);
+            last_red = PPG_ReadRED(idx);
         }
-        xSemaphoreGive(ppg_mutex);
+        PPG_Unlock();
     }
 
     if (count < 2) return;
@@ -302,11 +302,11 @@ static void Display_Draw_PpgRaw1s(void)
         uint16_t idx = (start + col) % PPG_SAMPLE_BUF;
         uint8_t beat = 0;
 
-        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
-        uint16_t ir_v = ppg_ir_buf[idx];
-        uint16_t re_v = ppg_red_buf[idx];
-        beat = ppg_beat_buf[idx];
-        xSemaphoreGive(ppg_mutex);
+        PPG_Lock();
+        uint16_t ir_v = PPG_ReadIR(idx);
+        uint16_t re_v = PPG_ReadRED(idx);
+        beat = PPG_ReadBeat(idx);
+        PPG_Unlock();
 
         int y_ir = R1S_PLOT_Y + R1S_PLOT_H - 1 -
                    (uint32_t)(ir_v - ir_min) * (R1S_PLOT_H - 1) / (ir_max - ir_min);
@@ -358,27 +358,27 @@ static void Display_Draw_Processed(void)
     uint16_t pcount;
     uint16_t phead;
     {
-        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
-        pcount = ppg_buf_count;
-        phead = ppg_buf_head;
-        xSemaphoreGive(ppg_mutex);
+        PPG_Lock();
+        pcount = PPG_GetCount();
+        phead = PPG_GetHead();
+        PPG_Unlock();
     }
 
     if (pcount < 2) {
         char buf[32];
-        snprintf(buf, sizeof(buf), "HR:%3u", ppg_hr);
+        snprintf(buf, sizeof(buf), "HR:%3u", PPG_GetHR());
         u8g2_DrawStr(&u8g2, 8, 62, buf);
         return;
     }
 
     float p_min = 1e10f, p_max = -1e10f;
-    xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+    PPG_Lock();
     for (uint16_t i = 0; i < pcount; i++) {
-        float v = ppg_proc_buf[(phead + PPG_SAMPLE_BUF - pcount + i) % PPG_SAMPLE_BUF];
+        float v = PPG_ReadProc((phead + PPG_SAMPLE_BUF - pcount + i) % PPG_SAMPLE_BUF);
         if (v < p_min) p_min = v;
         if (v > p_max) p_max = v;
     }
-    xSemaphoreGive(ppg_mutex);
+    PPG_Unlock();
 
     float p_abs = fmaxf(fabsf(p_min), fabsf(p_max));
     if (p_abs < 1.0f) p_abs = 1.0f;
@@ -397,13 +397,13 @@ static void Display_Draw_Processed(void)
         int x = PDC_PLOT_X + col;
 
         float f_lo = 1e10f, f_hi = -1e10f;
-        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+        PPG_Lock();
         for (uint16_t j = lo; j < hi; j++) {
-            float v = ppg_proc_buf[(pstart + j) % PPG_SAMPLE_BUF];
+            float v = PPG_ReadProc((pstart + j) % PPG_SAMPLE_BUF);
             if (v < f_lo) f_lo = v;
             if (v > f_hi) f_hi = v;
         }
-        xSemaphoreGive(ppg_mutex);
+        PPG_Unlock();
 
         int y_lo = y_center - (int)(f_hi * scale);
         int y_hi = y_center - (int)(f_lo * scale);
@@ -423,11 +423,11 @@ static void Display_Draw_Processed(void)
         if (hi > pplot_n) hi = pplot_n;
         if (lo >= pplot_n) break;
         uint8_t beat = 0;
-        xSemaphoreTake(ppg_mutex, portMAX_DELAY);
+        PPG_Lock();
         for (uint16_t j = lo; j < hi && !beat; j++) {
-            beat = ppg_beat_buf[(pstart + j) % PPG_SAMPLE_BUF];
+            beat = PPG_ReadBeat((pstart + j) % PPG_SAMPLE_BUF);
         }
-        xSemaphoreGive(ppg_mutex);
+        PPG_Unlock();
         if (beat == 1) {
             u8g2_DrawVLine(&u8g2, PDC_PLOT_X + col, PDC_PLOT_Y, PDC_PLOT_H - 1);
         } else if (beat == 2) {
@@ -438,7 +438,7 @@ static void Display_Draw_Processed(void)
     }
 
     char buf[32];
-    snprintf(buf, sizeof(buf), "HR:%3u", ppg_hr);
+    snprintf(buf, sizeof(buf), "HR:%3u", PPG_GetHR());
     u8g2_DrawStr(&u8g2, 8, 62, buf);
 }
 
@@ -455,10 +455,10 @@ static void Display_Draw_HR(void)
 #define BPM_PLOT_W     120
 #define BPM_PLOT_H     36
 
-    if (hr_history_count > 0 && ppg_hr > 0) {
+    if (hr_history_count > 0 && PPG_GetHR() > 0) {
         u8g2_DrawFrame(&u8g2, BPM_PLOT_X - 1, BPM_PLOT_Y - 1, BPM_PLOT_W + 2, BPM_PLOT_H + 2);
 
-        uint8_t bpm = ppg_hr;
+        uint8_t bpm = PPG_GetHR();
         int half = (240 - 40) / 6;
         int win_lo = (int)bpm - half;
         int win_hi = (int)bpm + half;
@@ -496,9 +496,9 @@ static void Display_Draw_HR(void)
     }
 
     char buf[16];
-    if (ppg_hr > 0) {
+    if (PPG_GetHR() > 0) {
         u8g2_SetFont(&u8g2, u8g2_font_ncenB10_tr);
-        snprintf(buf, sizeof(buf), "%u", ppg_hr);
+        snprintf(buf, sizeof(buf), "%u", PPG_GetHR());
         u8g2_DrawStr(&u8g2, 88, 62, buf);
         u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
         u8g2_DrawStr(&u8g2, 110, 62, "BPM");
@@ -581,14 +581,14 @@ void Display_Refresh(void)
             Display_Draw_Processed();
             break;
         case STATE_PPG_HR:
-            if (ppg_hr > 0 && ppg_hr != hr_last_stored) {
-                hr_smoothed = 0.30f * (float)ppg_hr + 0.70f * hr_smoothed;
+            if (PPG_GetHR() > 0 && PPG_GetHR() != hr_last_stored) {
+                hr_smoothed = 0.30f * (float)PPG_GetHR() + 0.70f * hr_smoothed;
                 uint8_t disp = (uint8_t)(hr_smoothed + 0.5f);
                 if (disp < 1) disp = 1;
                 hr_history[hr_history_head] = disp;
                 hr_history_head = (hr_history_head + 1) % HR_HIST_SIZE;
                 if (hr_history_count < HR_HIST_SIZE) hr_history_count++;
-                hr_last_stored = ppg_hr;
+                hr_last_stored = PPG_GetHR();
             }
             Display_Draw_HR();
             break;
