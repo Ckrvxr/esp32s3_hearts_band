@@ -24,6 +24,7 @@ static uint16_t g_chr_handle;
 uint32_t g_display_passkey;
 bool g_show_passkey;
 bool g_is_bonded;
+bool g_ble_connected;
 
 // ── GATT Access Callback ──────────────────────────────────────────
 // Handles read/write operations on the characteristic.
@@ -110,6 +111,7 @@ int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_CONNECT: {
         if (event->connect.status == 0) {
             g_conn_handle = event->connect.conn_handle;
+            g_ble_connected = true;
             ESP_LOGI(TAG, "Connected, conn_handle=%u", g_conn_handle);
         } else {
             ESP_LOGE(TAG, "Connect failed, status=%d", event->connect.status);
@@ -122,6 +124,7 @@ int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
         ESP_LOGI(TAG, "Disconnected, reason=%d", event->disconnect.reason);
         g_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         g_show_passkey = false;
+        g_ble_connected = false;
         ble_advertise();
         return 0;
 
@@ -356,5 +359,5 @@ void Ble_Driver_Send(const uint8_t *data, uint16_t len)
 
 bool Ble_Driver_IsConnected(void)
 {
-    return g_conn_handle != BLE_HS_CONN_HANDLE_NONE;
+    return g_ble_connected;
 }

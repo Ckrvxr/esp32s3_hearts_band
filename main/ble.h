@@ -8,6 +8,7 @@
 extern uint32_t g_display_passkey;
 extern bool g_show_passkey;
 extern bool g_is_bonded;
+extern bool g_ble_connected;
 
 void Ble_Driver_Init(void);
 void Ble_Driver_Send(const uint8_t *data, uint16_t len);

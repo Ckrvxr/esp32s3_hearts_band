@@ -564,14 +564,14 @@ static void Display_Draw_BleConfig(void)
 
     char line[32];
     const char *status;
-    if (g_show_passkey)
+    if (!g_ble_connected)
+        status = "DISCONNECTED";
+    else if (g_show_passkey)
         status = "PAIRING";
     else if (g_is_bonded)
         status = "CONNECTED";
-    else if (Ble_Driver_IsConnected())
-        status = "NOT PAIRED";
     else
-        status = "DISCONNECTED";
+        status = "NOT PAIRED";
     u8g2_DrawStr(&u8g2, 8, 30, status);
 
     char mac[18];
