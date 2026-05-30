@@ -19,3 +19,4 @@ extern volatile DisplayState_t currentState;
 void Display_Init(void);
 void Display_Refresh(void);
 void Display_Sleep(bool sleep_en);
+int DisplayState_IsVisible(DisplayState_t state);

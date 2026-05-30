@@ -132,7 +132,9 @@ void Key_Event_Handler(KeyEvent_t evt, uint8_t key_id)
             switch (evt) {
                 case KEY_EVENT_CLICK:
                     ESP_LOGI(TAG, "UP CLICK");
-                    currentState = (currentState + 1) % STATE_COUNT;
+                    do {
+                        currentState = (currentState + 1) % STATE_COUNT;
+                    } while (!DisplayState_IsVisible(currentState));
                     break;
                 case KEY_EVENT_DOUBLE_CLICK: ESP_LOGI(TAG, "UP DOUBLE_CLICK"); break;
                 case KEY_EVENT_LONG_PRESS:   ESP_LOGI(TAG, "UP LONG_PRESS"); break;
@@ -143,7 +145,9 @@ void Key_Event_Handler(KeyEvent_t evt, uint8_t key_id)
             switch (evt) {
                 case KEY_EVENT_CLICK:
                     ESP_LOGI(TAG, "DOWN CLICK");
-                    currentState = (currentState - 1 + STATE_COUNT) % STATE_COUNT;
+                    do {
+                        currentState = (currentState - 1 + STATE_COUNT) % STATE_COUNT;
+                    } while (!DisplayState_IsVisible(currentState));
                     break;
                 case KEY_EVENT_DOUBLE_CLICK: ESP_LOGI(TAG, "DOWN DOUBLE_CLICK"); break;
                 case KEY_EVENT_LONG_PRESS:   ESP_LOGI(TAG, "DOWN LONG_PRESS"); break;

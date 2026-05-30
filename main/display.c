@@ -24,7 +24,7 @@
 
 static const char *TAG = "DISPLAY";
 
-volatile DisplayState_t currentState = STATE_MAIN_SCREEN;
+volatile DisplayState_t currentState = STATE_PPG_HR;
 
 static u8g2_t u8g2;
 static uint32_t frame_count = 0;
@@ -608,5 +608,23 @@ void Display_Refresh(void)
     u8g2_SendBuffer(&u8g2);
 
     frame_count++;
+}
+
+int DisplayState_IsVisible(DisplayState_t state)
+{
+    switch (state) {
+        case STATE_MAIN_SCREEN:
+        case STATE_PPG_RAW_6S_AVG:
+        case STATE_PPG_RAW_1S:
+        case STATE_TIMER_SET:
+        case STATE_TIMER_RUNNING:
+        case STATE_TIMER_DONE:
+            return 0;
+        case STATE_PPG_PROCESSED:
+        case STATE_PPG_HR:
+            return 1;
+        default:
+            return 0;
+    }
 }
 // ------------------------------------------------------ Driver -------------------------------------------------------
