@@ -154,12 +154,34 @@ static void vPpgTask(void *pvParameters)
 static void vTimerTask(void *pvParameters)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
+    TickType_t timer_set_start = 0;
+    uint8_t debug_startup = 0;
     while (1) {
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
+
+        if (debug_startup < 10) {
+            debug_startup++;
+            if (debug_startup == 10) {
+                Timer_Set(TIMER_DRINK, 1);
+                currentState = STATE_TIMER_SET;
+            }
+        }
+
         Timer_CheckExpiry();
 
         if (Timer_HasJustExpired(TIMER_DRINK) || Timer_HasJustExpired(TIMER_MEDICINE)) {
             currentState = STATE_TIMER_DONE;
+        }
+
+        if (currentState == STATE_TIMER_SET) {
+            if (timer_set_start == 0)
+                timer_set_start = xTaskGetTickCount();
+            else if ((xTaskGetTickCount() - timer_set_start) >= pdMS_TO_TICKS(5000)) {
+                timer_set_start = 0;
+                currentState = STATE_TIMER_STATUS;
+            }
+        } else {
+            timer_set_start = 0;
         }
     }
 }

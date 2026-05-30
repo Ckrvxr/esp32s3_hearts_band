@@ -6,6 +6,7 @@
 
 #include "key.h"
 #include "display.h"
+#include "timer.h"
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
 #define KEY_UP      16
@@ -127,6 +128,15 @@ KeyEvent_t Key_Scan(uint8_t *out_key)
 
 void Key_Event_Handler(KeyEvent_t evt, uint8_t key_id)
 {
+    if (currentState == STATE_TIMER_SET || currentState == STATE_TIMER_DONE) {
+        if (currentState == STATE_TIMER_DONE) {
+            Timer_ClearExpiryFlag(TIMER_DRINK);
+            Timer_ClearExpiryFlag(TIMER_MEDICINE);
+        }
+        currentState = STATE_TIMER_STATUS;
+        return;
+    }
+
     switch (key_id) {
         case KEY_IDX_UP:
             switch (evt) {
@@ -157,8 +167,8 @@ void Key_Event_Handler(KeyEvent_t evt, uint8_t key_id)
         case KEY_IDX_CONFIRM:
             switch (evt) {
                 case KEY_EVENT_CLICK:
-                    if (currentState == STATE_TIMER_RUNNING || currentState == STATE_TIMER_DONE) {
-                        currentState = STATE_PPG_HR;
+                    if (currentState == STATE_TIMER_DONE) {
+                        currentState = STATE_TIMER_STATUS;
                     }
                     ESP_LOGI(TAG, "CONFIRM CLICK");
                     break;

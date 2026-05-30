@@ -454,7 +454,7 @@ static void Display_Draw_HR(void)
 #define BPM_PLOT_W     120
 #define BPM_PLOT_H     36
 
-    if (hr_history_count > 0 && PPG_GetHR() > 0) {
+    if (hr_history_count > 0) {
         u8g2_DrawFrame(&u8g2, BPM_PLOT_X - 1, BPM_PLOT_Y - 1, BPM_PLOT_W + 2, BPM_PLOT_H + 2);
 
         uint8_t bpm = PPG_GetHR();
@@ -471,38 +471,39 @@ static void Display_Draw_HR(void)
 
         uint16_t total = hr_history_count;
         uint16_t oldest_idx = (total < HR_HIST_SIZE) ? 0 : hr_history_head;
+        uint16_t col_start = 0;
 
         for (int col = 0; col < BPM_PLOT_W; col++) {
-            uint16_t col_start, col_end;
-            if (total <= BPM_PLOT_W) {
-                if (col >= total) break;
-                col_start = col;
-                col_end = col + 1;
-            } else {
-                col_start = (uint32_t)col * total / BPM_PLOT_W;
-                col_end = (uint32_t)(col + 1) * total / BPM_PLOT_W;
-                if (col_end > total) col_end = total;
-            }
+            uint16_t cs = col_start;
+            uint16_t ce = cs + 25;
+            if (cs >= total) break;
+            if (ce > total) ce = total;
 
             uint8_t bmin = 255, bmax = 0;
-            for (uint16_t s = col_start; s < col_end; s++) {
+            for (uint16_t s = cs; s < ce; s++) {
                 uint8_t v = hr_history[(oldest_idx + s) % HR_HIST_SIZE];
                 if (v < bmin) bmin = v;
                 if (v > bmax) bmax = v;
             }
 
+            int dy_lo = (int)bmax - (int)y_min;
+            int dy_hi = (int)bmin - (int)y_min;
+            if (dy_lo < 0) dy_lo = 0;
+            if (dy_hi < 0) dy_hi = 0;
             int y_lo = BPM_PLOT_Y + BPM_PLOT_H - 1
-                     - (uint32_t)(bmax - y_min) * (BPM_PLOT_H - 1) / y_span;
+                     - dy_lo * (BPM_PLOT_H - 1) / (int)y_span;
             int y_hi = BPM_PLOT_Y + BPM_PLOT_H - 1
-                     - (uint32_t)(bmin - y_min) * (BPM_PLOT_H - 1) / y_span;
+                     - dy_hi * (BPM_PLOT_H - 1) / (int)y_span;
             if (y_lo < BPM_PLOT_Y) y_lo = BPM_PLOT_Y;
-            if (y_hi >= BPM_PLOT_Y + BPM_PLOT_H) y_hi = BPM_PLOT_Y + BPM_PLOT_H - 1;
+            if (y_hi < BPM_PLOT_Y) y_hi = BPM_PLOT_Y;
 
             int x = BPM_PLOT_X + col;
             if (y_lo != y_hi)
                 u8g2_DrawVLine(&u8g2, x, y_lo, y_hi - y_lo + 1);
             else
                 u8g2_DrawPixel(&u8g2, x, y_lo);
+
+            col_start = ce;
         }
     }
 
@@ -513,13 +514,6 @@ static void Display_Draw_HR(void)
         u8g2_DrawStr(&u8g2, 88, 62, buf);
         u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
         u8g2_DrawStr(&u8g2, 110, 62, "BPM");
-    } else {
-        u8g2_SetFont(&u8g2, u8g2_font_ncenB10_tr);
-        int x = (128 - u8g2_GetStrWidth(&u8g2, "--")) / 2;
-        u8g2_DrawStr(&u8g2, x, 42, "--");
-        u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-        x = (128 - u8g2_GetStrWidth(&u8g2, "NO SIGNAL")) / 2;
-        u8g2_DrawStr(&u8g2, x, 58, "NO SIGNAL");
     }
 }
 
@@ -527,14 +521,14 @@ static void Display_Draw_HR(void)
 static void Display_Draw_TimerStatus(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(&u8g2, 8, 10, "Timer Status");
-    u8g2_DrawHLine(&u8g2, 0, 14, 128);
+    u8g2_DrawStr(&u8g2, 8, 8, "Timer Status");
+    u8g2_DrawHLine(&u8g2, 0, 12, 128);
 
     for (int i = 0; i < TIMER_COUNT; i++) {
         TimerType_t t = (TimerType_t)i;
         const char *label = (t == TIMER_DRINK) ? "Drink" : "Med";
-        int y_text = (i == 0) ? 24 : 44;
-        int y_bar  = (i == 0) ? 30 : 50;
+        int y_text = (i == 0) ? 24 : 48;
+        int y_bar  = (i == 0) ? 29 : 53;
 
         if (Timer_IsActive(t)) {
             uint32_t remain = Timer_GetRemainingSecs(t);
@@ -545,11 +539,11 @@ static void Display_Draw_TimerStatus(void)
             snprintf(buf, sizeof(buf), "%s:  %02u:%02u", label, m, s);
             u8g2_DrawStr(&u8g2, 8, y_text, buf);
 
-            u8g2_DrawFrame(&u8g2, 4, y_bar, 120, 8);
+            u8g2_DrawFrame(&u8g2, 4, y_bar, 120, 5);
             if (total > 0) {
                 uint8_t fill = (uint8_t)((uint32_t)(total - remain) * 118 / total);
                 if (fill > 118) fill = 118;
-                u8g2_DrawBox(&u8g2, 5, y_bar + 1, fill, 6);
+                u8g2_DrawBox(&u8g2, 5, y_bar + 1, fill, 3);
             }
         } else {
             char buf[24];
@@ -561,92 +555,48 @@ static void Display_Draw_TimerStatus(void)
 
 static void Display_Draw_TimerSet(void)
 {
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(&u8g2, 8, 10, "Timer Set");
-    u8g2_DrawHLine(&u8g2, 0, 14, 128);
-
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
-    u8g2_DrawStr(&u8g2, 16, 36, "OK!");
-
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    char buf[32];
-    if (Timer_IsActive(TIMER_DRINK)) {
-        snprintf(buf, sizeof(buf), "drink %u min", (unsigned)(Timer_GetTotalSecs(TIMER_DRINK) / 60));
-    } else if (Timer_IsActive(TIMER_MEDICINE)) {
-        snprintf(buf, sizeof(buf), "medicine %u min", (unsigned)(Timer_GetTotalSecs(TIMER_MEDICINE) / 60));
-    } else {
-        snprintf(buf, sizeof(buf), "No timer set");
-    }
-    u8g2_DrawStr(&u8g2, 28, 52, buf);
-}
-
-static void Display_Draw_TimerRunning(void)
-{
     TimerType_t active = TIMER_COUNT;
-    for (int i = 0; i < TIMER_COUNT; i++) {
-        if (Timer_IsActive((TimerType_t)i)) {
-            active = (TimerType_t)i;
-            break;
-        }
-    }
-
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    if (active < TIMER_COUNT) {
-        char title[32];
-        snprintf(title, sizeof(title), "%s Timer",
-                 active == TIMER_DRINK ? "Drink" : "Medicine");
-        u8g2_DrawStr(&u8g2, 8, 10, title);
-    } else {
-        u8g2_DrawStr(&u8g2, 8, 10, "Countdown");
-    }
-    u8g2_DrawHLine(&u8g2, 0, 14, 128);
+    uint32_t total_secs = 0;
+    if (Timer_IsActive(TIMER_DRINK)) { active = TIMER_DRINK; total_secs = Timer_GetTotalSecs(TIMER_DRINK); }
+    else if (Timer_IsActive(TIMER_MEDICINE)) { active = TIMER_MEDICINE; total_secs = Timer_GetTotalSecs(TIMER_MEDICINE); }
 
     if (active < TIMER_COUNT) {
-        uint32_t remain = Timer_GetRemainingSecs(active);
-        uint32_t total = Timer_GetTotalSecs(active);
+        const char *type_str = (active == TIMER_DRINK) ? "drink" : "medicine";
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB10_tr);
+        u8g2_DrawStr(&u8g2, 16, 22, "Set OK");
 
-        uint8_t m = remain / 60;
-        uint8_t s = remain % 60;
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%02u:%02u", m, s);
-        u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
-        u8g2_DrawStr(&u8g2, 10, 42, buf);
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%s timer", type_str);
+        u8g2_DrawStr(&u8g2, 8, 40, buf);
 
-        u8g2_DrawFrame(&u8g2, 4, 48, 120, 8);
-        if (total > 0) {
-            uint8_t fill = (uint8_t)((uint32_t)(total - remain) * 118 / total);
-            if (fill > 118) fill = 118;
-            u8g2_DrawBox(&u8g2, 5, 49, fill, 6);
-        }
+        uint32_t minutes = total_secs / 60;
+        snprintf(buf, sizeof(buf), "remind in %umin", (unsigned)minutes);
+        u8g2_DrawStr(&u8g2, 8, 54, buf);
     } else {
-        u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
-        u8g2_DrawStr(&u8g2, 10, 42, "00:00");
-        u8g2_DrawFrame(&u8g2, 4, 48, 120, 8);
-        u8g2_DrawBox(&u8g2, 5, 49, 118, 6);
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB10_tr);
+        u8g2_DrawStr(&u8g2, 16, 22, "Cancelled");
+
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+        u8g2_DrawStr(&u8g2, 8, 44, "timer");
     }
 }
 
 static void Display_Draw_TimerDone(void)
 {
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-
-    if ((frame_count / 8) % 2) {
-        u8g2_DrawStr(&u8g2, 32, 10, "TIME'S UP");
-        u8g2_DrawHLine(&u8g2, 0, 14, 128);
-    }
-
     const char *expired = NULL;
     if (Timer_HasJustExpired(TIMER_DRINK)) expired = "drink";
     else if (Timer_HasJustExpired(TIMER_MEDICINE)) expired = "medicine";
-    if (expired) {
-        u8g2_DrawStr(&u8g2, 8, 26, expired);
+
+    if (expired && (frame_count / 8) % 2) {
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB10_tr);
+        if (strcmp(expired, "drink") == 0) {
+            u8g2_DrawStr(&u8g2, 16, 26, "Time to Drink!");
+        } else {
+            u8g2_DrawStr(&u8g2, 16, 20, "Time to");
+            u8g2_DrawStr(&u8g2, 16, 34, "take medicine!");
+        }
     }
-
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB24_tr);
-    u8g2_DrawStr(&u8g2, 28, 46, "!!!");
-
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(&u8g2, 36, 60, "Time Over");
 }
 
 
@@ -675,10 +625,10 @@ void Display_Refresh(void)
             Display_Draw_Processed();
             break;
         case STATE_PPG_HR:
-            if (PPG_GetHR() > 0) {
-                hr_smoothed = 0.30f * (float)PPG_GetHR() + 0.70f * hr_smoothed;
+            {
+                uint8_t hr = PPG_GetHR();
+                hr_smoothed = 0.30f * (float)hr + 0.70f * hr_smoothed;
                 uint8_t disp = (uint8_t)(hr_smoothed + 0.5f);
-                if (disp < 1) disp = 1;
                 hr_history[hr_history_head] = disp;
                 hr_history_head = (hr_history_head + 1) % HR_HIST_SIZE;
                 if (hr_history_count < HR_HIST_SIZE) hr_history_count++;
@@ -690,9 +640,6 @@ void Display_Refresh(void)
             break;
         case STATE_TIMER_SET:
             Display_Draw_TimerSet();
-            break;
-        case STATE_TIMER_RUNNING:
-            Display_Draw_TimerRunning();
             break;
         case STATE_TIMER_DONE:
             Display_Draw_TimerDone();
@@ -717,7 +664,6 @@ int DisplayState_IsVisible(DisplayState_t state)
         case STATE_PPG_RAW_6S_AVG:
         case STATE_PPG_RAW_1S:
         case STATE_TIMER_SET:
-        case STATE_TIMER_RUNNING:
         case STATE_TIMER_DONE:
             return 0;
         default:
