@@ -14,6 +14,7 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "ble.h"
+#include "display.h"
 #include "timer.h"
 
 // Forward declarations for JSON helpers (defined below)
@@ -68,9 +69,11 @@ static int ble_svc_access_cb(uint16_t conn_handle, uint16_t attr_handle, struct 
                     const char *ts = (tt == TIMER_MEDICINE) ? "medicine" : "drink";
                     if (strcmp(action, "set") == 0 && time_val > 0) {
                         Timer_Set(tt, (uint32_t)time_val);
+                        currentState = STATE_TIMER_RUNNING;
                         Ble_Driver_SendAck("set_timer", uuid, ts, time_val);
                     } else if (strcmp(action, "cancel") == 0) {
                         Timer_Cancel(tt);
+                        currentState = STATE_PPG_HR;
                         Ble_Driver_SendAck("cancel_timer", uuid, ts, 0);
                     }
                 }

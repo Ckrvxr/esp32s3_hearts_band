@@ -292,24 +292,35 @@ void PPG_V3_Process(uint16_t ir_raw, uint16_t red_raw)
             p_med = mf_tmp[MF_K / 2];
         }
 
-        // Hysteresis beat detection
+        // Hysteresis beat detection + window validation
         bool beat = false;
         if (p_med >= THRESHOLD) {
             if (!above_threshold && (sample_count - last_beat_sample) >= REFRACTORY) {
                 beat = true;
-                uint32_t interval = sample_count - last_beat_sample;
-                if (interval >= 20 && interval <= BPM_GAP_MAX && last_beat_sample > 0) {
-                    beat_idx_buf[beat_window_count % BPM_WINDOW] = interval;
-                    beat_window_count++;
-                    if (beat_window_count >= BPM_WINDOW) {
-                        uint32_t sum = 0;
-                        for (int i = 0; i < BPM_WINDOW; i++)
-                            sum += beat_idx_buf[i];
-                        float mean_ppi = (float)sum / BPM_WINDOW;
-                        bpm_last_valid = 6000.0f / mean_ppi;
-                        bpm_hold_counter = 0;
+
+                if (beat_window_count > 0) {
+                    uint32_t interval = sample_count - beat_idx_buf[beat_window_count - 1];
+                    if (interval > BPM_GAP_MAX || interval < 24) {
+                        beat_window_count = 0;
                     }
                 }
+
+                beat_idx_buf[beat_window_count] = sample_count;
+                beat_window_count++;
+
+                if (beat_window_count == BPM_WINDOW) {
+                    uint32_t sum_ppi = 0;
+                    for (int i = 1; i < BPM_WINDOW; i++)
+                        sum_ppi += beat_idx_buf[i] - beat_idx_buf[i - 1];
+                    float mean_ppi = (float)sum_ppi / (BPM_WINDOW - 1);
+                    bpm_last_valid = 6000.0f / mean_ppi;
+                    bpm_hold_counter = 0;
+
+                    for (int i = 1; i < BPM_WINDOW; i++)
+                        beat_idx_buf[i - 1] = beat_idx_buf[i];
+                    beat_window_count = BPM_WINDOW - 1;
+                }
+
                 last_beat_sample = sample_count;
             }
             above_threshold = true;

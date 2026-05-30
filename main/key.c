@@ -156,7 +156,12 @@ void Key_Event_Handler(KeyEvent_t evt, uint8_t key_id)
             break;
         case KEY_IDX_CONFIRM:
             switch (evt) {
-                case KEY_EVENT_CLICK:        ESP_LOGI(TAG, "CONFIRM CLICK"); break;
+                case KEY_EVENT_CLICK:
+                    if (currentState == STATE_TIMER_RUNNING || currentState == STATE_TIMER_DONE) {
+                        currentState = STATE_PPG_HR;
+                    }
+                    ESP_LOGI(TAG, "CONFIRM CLICK");
+                    break;
                 case KEY_EVENT_DOUBLE_CLICK: ESP_LOGI(TAG, "CONFIRM DOUBLE_CLICK"); break;
                 case KEY_EVENT_LONG_PRESS:   ESP_LOGI(TAG, "CONFIRM LONG_PRESS"); break;
                 default: break;

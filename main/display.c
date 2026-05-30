@@ -14,6 +14,7 @@
 #include "ble.h"
 #include "ppg.h"
 #include "ppg_v3.h"
+#include "timer.h"
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
 #define I2C_MASTER_SCL      4
@@ -31,11 +32,10 @@ static uint32_t frame_count = 0;
 static i2c_master_bus_handle_t bus_handle;
 static i2c_master_dev_handle_t dev_handle;
 
-#define HR_HIST_SIZE 120
+#define HR_HIST_SIZE 3000
 static uint8_t hr_history[HR_HIST_SIZE];
 static uint16_t hr_history_head;
 static uint16_t hr_history_count;
-static uint8_t hr_last_stored;
 static float hr_smoothed;
 static uint8_t i2c_tx_buf[1025];
 static uint16_t i2c_buf_len = 0;
@@ -123,7 +123,6 @@ void Display_Init(void)
 
     hr_history_head = 0;
     hr_history_count = 0;
-    hr_last_stored = 0;
     hr_smoothed = 72.0f;
     ESP_LOGI(TAG, "Display initialized");
 }
@@ -470,28 +469,40 @@ static void Display_Draw_HR(void)
         uint8_t y_span = y_max - y_min;
         if (y_span < 10) y_span = 10;
 
-        uint16_t plot_n = (hr_history_count < BPM_PLOT_W) ? hr_history_count : BPM_PLOT_W;
-        uint16_t start = (hr_history_count <= BPM_PLOT_W) ? 0
-            : (hr_history_head + HR_HIST_SIZE - plot_n) % HR_HIST_SIZE;
+        uint16_t total = hr_history_count;
+        uint16_t oldest_idx = (total < HR_HIST_SIZE) ? 0 : hr_history_head;
 
-        int prev_x = -1, prev_y = -1;
-        int x_off = BPM_PLOT_X + (BPM_PLOT_W - plot_n);
+        for (int col = 0; col < BPM_PLOT_W; col++) {
+            uint16_t col_start, col_end;
+            if (total <= BPM_PLOT_W) {
+                if (col >= total) break;
+                col_start = col;
+                col_end = col + 1;
+            } else {
+                col_start = (uint32_t)col * total / BPM_PLOT_W;
+                col_end = (uint32_t)(col + 1) * total / BPM_PLOT_W;
+                if (col_end > total) col_end = total;
+            }
 
-        for (int col = 0; col < plot_n; col++) {
-            uint16_t idx = (start + col) % HR_HIST_SIZE;
-            uint8_t hr_val = hr_history[idx];
+            uint8_t bmin = 255, bmax = 0;
+            for (uint16_t s = col_start; s < col_end; s++) {
+                uint8_t v = hr_history[(oldest_idx + s) % HR_HIST_SIZE];
+                if (v < bmin) bmin = v;
+                if (v > bmax) bmax = v;
+            }
 
-            int y = BPM_PLOT_Y + BPM_PLOT_H - 1
-                  - (uint32_t)(hr_val - y_min) * (BPM_PLOT_H - 1) / y_span;
-            int x = x_off + col;
+            int y_lo = BPM_PLOT_Y + BPM_PLOT_H - 1
+                     - (uint32_t)(bmax - y_min) * (BPM_PLOT_H - 1) / y_span;
+            int y_hi = BPM_PLOT_Y + BPM_PLOT_H - 1
+                     - (uint32_t)(bmin - y_min) * (BPM_PLOT_H - 1) / y_span;
+            if (y_lo < BPM_PLOT_Y) y_lo = BPM_PLOT_Y;
+            if (y_hi >= BPM_PLOT_Y + BPM_PLOT_H) y_hi = BPM_PLOT_Y + BPM_PLOT_H - 1;
 
-            if (prev_x >= 0)
-                u8g2_DrawLine(&u8g2, prev_x, prev_y, x, y);
+            int x = BPM_PLOT_X + col;
+            if (y_lo != y_hi)
+                u8g2_DrawVLine(&u8g2, x, y_lo, y_hi - y_lo + 1);
             else
-                u8g2_DrawPixel(&u8g2, x, y);
-
-            prev_x = x;
-            prev_y = y;
+                u8g2_DrawPixel(&u8g2, x, y_lo);
         }
     }
 
@@ -513,6 +524,41 @@ static void Display_Draw_HR(void)
 }
 
 // --------------------------------------------------- Timer Pages -----------------------------------------------------
+static void Display_Draw_TimerStatus(void)
+{
+    u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
+    u8g2_DrawStr(&u8g2, 8, 10, "Timer Status");
+    u8g2_DrawHLine(&u8g2, 0, 14, 128);
+
+    for (int i = 0; i < TIMER_COUNT; i++) {
+        TimerType_t t = (TimerType_t)i;
+        const char *label = (t == TIMER_DRINK) ? "Drink" : "Med";
+        int y_text = (i == 0) ? 24 : 44;
+        int y_bar  = (i == 0) ? 30 : 50;
+
+        if (Timer_IsActive(t)) {
+            uint32_t remain = Timer_GetRemainingSecs(t);
+            uint32_t total = Timer_GetTotalSecs(t);
+            uint8_t m = remain / 60;
+            uint8_t s = remain % 60;
+            char buf[24];
+            snprintf(buf, sizeof(buf), "%s:  %02u:%02u", label, m, s);
+            u8g2_DrawStr(&u8g2, 8, y_text, buf);
+
+            u8g2_DrawFrame(&u8g2, 4, y_bar, 120, 8);
+            if (total > 0) {
+                uint8_t fill = (uint8_t)((uint32_t)(total - remain) * 118 / total);
+                if (fill > 118) fill = 118;
+                u8g2_DrawBox(&u8g2, 5, y_bar + 1, fill, 6);
+            }
+        } else {
+            char buf[24];
+            snprintf(buf, sizeof(buf), "%s:  idle", label);
+            u8g2_DrawStr(&u8g2, 8, y_text, buf);
+        }
+    }
+}
+
 static void Display_Draw_TimerSet(void)
 {
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
@@ -523,20 +569,61 @@ static void Display_Draw_TimerSet(void)
     u8g2_DrawStr(&u8g2, 16, 36, "OK!");
 
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(&u8g2, 28, 52, "Timer: 30min");
+    char buf[32];
+    if (Timer_IsActive(TIMER_DRINK)) {
+        snprintf(buf, sizeof(buf), "drink %u min", (unsigned)(Timer_GetTotalSecs(TIMER_DRINK) / 60));
+    } else if (Timer_IsActive(TIMER_MEDICINE)) {
+        snprintf(buf, sizeof(buf), "medicine %u min", (unsigned)(Timer_GetTotalSecs(TIMER_MEDICINE) / 60));
+    } else {
+        snprintf(buf, sizeof(buf), "No timer set");
+    }
+    u8g2_DrawStr(&u8g2, 28, 52, buf);
 }
 
 static void Display_Draw_TimerRunning(void)
 {
+    TimerType_t active = TIMER_COUNT;
+    for (int i = 0; i < TIMER_COUNT; i++) {
+        if (Timer_IsActive((TimerType_t)i)) {
+            active = (TimerType_t)i;
+            break;
+        }
+    }
+
     u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-    u8g2_DrawStr(&u8g2, 8, 10, "Countdown");
+    if (active < TIMER_COUNT) {
+        char title[32];
+        snprintf(title, sizeof(title), "%s Timer",
+                 active == TIMER_DRINK ? "Drink" : "Medicine");
+        u8g2_DrawStr(&u8g2, 8, 10, title);
+    } else {
+        u8g2_DrawStr(&u8g2, 8, 10, "Countdown");
+    }
     u8g2_DrawHLine(&u8g2, 0, 14, 128);
 
-    u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
-    u8g2_DrawStr(&u8g2, 10, 42, "00:00");
+    if (active < TIMER_COUNT) {
+        uint32_t remain = Timer_GetRemainingSecs(active);
+        uint32_t total = Timer_GetTotalSecs(active);
 
-    u8g2_DrawFrame(&u8g2, 4, 48, 120, 8);
-    u8g2_DrawBox(&u8g2, 5, 49, 118, 6);
+        uint8_t m = remain / 60;
+        uint8_t s = remain % 60;
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%02u:%02u", m, s);
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
+        u8g2_DrawStr(&u8g2, 10, 42, buf);
+
+        u8g2_DrawFrame(&u8g2, 4, 48, 120, 8);
+        if (total > 0) {
+            uint8_t fill = (uint8_t)((uint32_t)(total - remain) * 118 / total);
+            if (fill > 118) fill = 118;
+            u8g2_DrawBox(&u8g2, 5, 49, fill, 6);
+        }
+    } else {
+        u8g2_SetFont(&u8g2, u8g2_font_ncenB18_tr);
+        u8g2_DrawStr(&u8g2, 10, 42, "00:00");
+        u8g2_DrawFrame(&u8g2, 4, 48, 120, 8);
+        u8g2_DrawBox(&u8g2, 5, 49, 118, 6);
+    }
 }
 
 static void Display_Draw_TimerDone(void)
@@ -546,6 +633,13 @@ static void Display_Draw_TimerDone(void)
     if ((frame_count / 8) % 2) {
         u8g2_DrawStr(&u8g2, 32, 10, "TIME'S UP");
         u8g2_DrawHLine(&u8g2, 0, 14, 128);
+    }
+
+    const char *expired = NULL;
+    if (Timer_HasJustExpired(TIMER_DRINK)) expired = "drink";
+    else if (Timer_HasJustExpired(TIMER_MEDICINE)) expired = "medicine";
+    if (expired) {
+        u8g2_DrawStr(&u8g2, 8, 26, expired);
     }
 
     u8g2_SetFont(&u8g2, u8g2_font_ncenB24_tr);
@@ -581,16 +675,18 @@ void Display_Refresh(void)
             Display_Draw_Processed();
             break;
         case STATE_PPG_HR:
-            if (PPG_GetHR() > 0 && PPG_GetHR() != hr_last_stored) {
+            if (PPG_GetHR() > 0) {
                 hr_smoothed = 0.30f * (float)PPG_GetHR() + 0.70f * hr_smoothed;
                 uint8_t disp = (uint8_t)(hr_smoothed + 0.5f);
                 if (disp < 1) disp = 1;
                 hr_history[hr_history_head] = disp;
                 hr_history_head = (hr_history_head + 1) % HR_HIST_SIZE;
                 if (hr_history_count < HR_HIST_SIZE) hr_history_count++;
-                hr_last_stored = PPG_GetHR();
             }
             Display_Draw_HR();
+            break;
+        case STATE_TIMER_STATUS:
+            Display_Draw_TimerStatus();
             break;
         case STATE_TIMER_SET:
             Display_Draw_TimerSet();
@@ -613,6 +709,10 @@ void Display_Refresh(void)
 int DisplayState_IsVisible(DisplayState_t state)
 {
     switch (state) {
+        case STATE_PPG_PROCESSED:
+        case STATE_PPG_HR:
+        case STATE_TIMER_STATUS:
+            return 1;
         case STATE_MAIN_SCREEN:
         case STATE_PPG_RAW_6S_AVG:
         case STATE_PPG_RAW_1S:
@@ -620,9 +720,6 @@ int DisplayState_IsVisible(DisplayState_t state)
         case STATE_TIMER_RUNNING:
         case STATE_TIMER_DONE:
             return 0;
-        case STATE_PPG_PROCESSED:
-        case STATE_PPG_HR:
-            return 1;
         default:
             return 0;
     }

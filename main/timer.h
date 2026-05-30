@@ -13,3 +13,7 @@ void Timer_Set(TimerType_t type, uint32_t minutes);
 void Timer_Cancel(TimerType_t type);
 bool Timer_IsActive(TimerType_t type);
 void Timer_CheckExpiry(void);
+uint32_t Timer_GetRemainingSecs(TimerType_t type);
+uint32_t Timer_GetTotalSecs(TimerType_t type);
+bool Timer_HasJustExpired(TimerType_t type);
+void Timer_ClearExpiryFlag(TimerType_t type);

@@ -87,11 +87,14 @@ static void vPpgTask(void *pvParameters)
             {
                 uint8_t n = MAX30100_ReadFifo(ir, red);
                 for (int i = 0; i < n; i++) {
-                    PPG_PushSample(ir[i], red[i]);
-                    PPG_V3_Process(ir[i], red[i]);
+                    dc_ir  = 0.999f * dc_ir  + 0.001f * ir[i];
+                    dc_red = 0.999f * dc_red + 0.001f * red[i];
                 }
 
-                if (PPG_V3_HasContact()) {
+                PPG_PushSample(0, 0);
+                PPG_V3_Process(0, 0);
+
+                if (dc_ir > 2000.0f) {
                     g_max30100_state = MAX30100_STATE_NORMAL;
                     break;
                 }
@@ -99,7 +102,6 @@ static void vPpgTask(void *pvParameters)
                 if (!xIdleStart) xIdleStart = now;
                 if ((now - xIdleStart) >= pdMS_TO_TICKS(3000)) {
                     MAX30100_Sleep();
-                    Display_Sleep(true);
                     g_max30100_state = MAX30100_STATE_SLEEPING;
                     xIdleStart = 0;
                 }
@@ -108,23 +110,23 @@ static void vPpgTask(void *pvParameters)
 
             case MAX30100_STATE_SLEEPING:
             {
+                PPG_PushSample(0, 0);
+                PPG_V3_Process(0, 0);
+
                 if (!xIdleStart) xIdleStart = now;
                 if ((now - xIdleStart) >= pdMS_TO_TICKS(MAX30100_WAKE_INTERVAL_MS)) {
                     MAX30100_Wake();
-                    vTaskDelay(pdMS_TO_TICKS(50));
-                    xLastWakeTime = xTaskGetTickCount();
-
-                    dc_ir = 0;
-                    dc_red = 0;
-                    MAX30100_AutoAdjust_Init();
+                    MAX30100_WriteReg(MAX30100_REG_LED_CONFIG, (0x08 << 4) | 0x01);
+                    vTaskDelay(pdMS_TO_TICKS(10));
 
                     uint8_t n = MAX30100_ReadFifo(ir, red);
-                    for (int i = 0; i < n; i++) {
-                        PPG_V3_Process(ir[i], red[i]);
-                    }
+                    if (n > 5) n = 5;
 
-                    if (PPG_V3_HasContact()) {
-                        Display_Sleep(false);
+                    uint32_t ir_sum = 0;
+                    for (int i = 0; i < n; i++) ir_sum += ir[i];
+                    float ir_avg = (float)ir_sum / (n > 0 ? n : 1);
+
+                    if (ir_avg > 2000.0f) {
                         g_max30100_state = MAX30100_STATE_NORMAL;
                     } else {
                         MAX30100_Sleep();
@@ -155,6 +157,10 @@ static void vTimerTask(void *pvParameters)
     while (1) {
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
         Timer_CheckExpiry();
+
+        if (Timer_HasJustExpired(TIMER_DRINK) || Timer_HasJustExpired(TIMER_MEDICINE)) {
+            currentState = STATE_TIMER_DONE;
+        }
     }
 }
 
