@@ -150,6 +150,7 @@ int ble_gap_event_cb(struct ble_gap_event *event, void *arg)
             g_conn_handle = event->connect.conn_handle;
             g_ble_connected = true;
             ESP_LOGI(TAG, "Connected, conn_handle=%u", g_conn_handle);
+            ble_gattc_exchange_mtu(g_conn_handle, NULL, NULL);
         } else {
             ESP_LOGE(TAG, "Connect failed, status=%d", event->connect.status);
             ble_advertise();
@@ -331,6 +332,8 @@ void Ble_Driver_Init(void)
 void Ble_Driver_Send(const uint8_t *data, uint16_t len)
 {
     if (g_conn_handle == BLE_HS_CONN_HANDLE_NONE) return;
+
+    ESP_LOGI(TAG, "TX[%u]: %.*s", len, len, (const char *)data);
 
     struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
     if (om) ble_gatts_notify_custom(g_conn_handle, g_chr_handle, om);

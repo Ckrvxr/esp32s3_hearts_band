@@ -326,12 +326,9 @@ void PPG_V3_Process(uint16_t ir_raw, uint16_t red_raw)
         } else {
             bpm_smoothed *= 0.995f;
         }
-        if (bpm_smoothed > 0) {
-            float hr_out = bpm_smoothed + 0.5f;
-            if (hr_out < 30) hr_out = 30;
-            if (hr_out > 200) hr_out = 200;
-            PPG_SetHR((uint8_t)hr_out);
-        }
+        float hr_out = bpm_smoothed + 0.5f;
+        if (hr_out > 200) hr_out = 200;
+        PPG_SetHR((uint8_t)hr_out);
 
         // SpO2 calculation (update every frame ≈ 1s at CNN_WINDOW_SIZE=200, 50Hz = 4s)
         if (spo2_sample_count > 0 && spo2_dc_ir > 100.0f && spo2_dc_red > 100.0f) {
