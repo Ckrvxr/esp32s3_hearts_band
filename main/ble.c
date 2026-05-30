@@ -333,9 +333,7 @@ void Ble_Driver_Send(const uint8_t *data, uint16_t len)
     if (g_conn_handle == BLE_HS_CONN_HANDLE_NONE) return;
 
     struct os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
-    if (om == NULL) return;
-
-    ble_gatts_notify_custom(g_conn_handle, g_chr_handle, om);
+    if (om) ble_gatts_notify_custom(g_conn_handle, g_chr_handle, om);
 }
 
 bool Ble_Driver_IsConnected(void)

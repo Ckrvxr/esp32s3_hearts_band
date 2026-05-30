@@ -158,6 +158,18 @@ static void vTimerTask(void *pvParameters)
     }
 }
 
+// ── Static task buffers ────────────────────────────────────────────
+static StackType_t main_task_stack[4096 / sizeof(StackType_t)];
+static StaticTask_t main_task_tcb;
+static StackType_t display_task_stack[6144 / sizeof(StackType_t)];
+static StaticTask_t display_task_tcb;
+static StackType_t key_task_stack[2048 / sizeof(StackType_t)];
+static StaticTask_t key_task_tcb;
+static StackType_t ppg_task_stack[4096 / sizeof(StackType_t)];
+static StaticTask_t ppg_task_tcb;
+static StackType_t timer_task_stack[2048 / sizeof(StackType_t)];
+static StaticTask_t timer_task_tcb;
+
 void app_main(void)
 {
     Display_Init();
@@ -176,11 +188,16 @@ void app_main(void)
     uart_set_pin(UART_NUM_1, 21, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     uart_driver_install(UART_NUM_1, 256, 0, 0, NULL, 0);
 
-    xTaskCreatePinnedToCore(MainTask, "MainTask", 4096, NULL, 1, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 6144, NULL, 2, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(vKeyTask, "KeyTask", 2048, NULL, 1, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(vPpgTask, "PpgTask", 4096, NULL, 1, NULL, tskNO_AFFINITY);
-    xTaskCreatePinnedToCore(vTimerTask, "TimerTask", 2048, NULL, 1, NULL, tskNO_AFFINITY);
+    xTaskCreateStaticPinnedToCore(MainTask, "MainTask", 4096, NULL, 1,
+        main_task_stack, &main_task_tcb, tskNO_AFFINITY);
+    xTaskCreateStaticPinnedToCore(vDisplayTask, "DisplayTask", 6144, NULL, 2,
+        display_task_stack, &display_task_tcb, tskNO_AFFINITY);
+    xTaskCreateStaticPinnedToCore(vKeyTask, "KeyTask", 2048, NULL, 1,
+        key_task_stack, &key_task_tcb, tskNO_AFFINITY);
+    xTaskCreateStaticPinnedToCore(vPpgTask, "PpgTask", 4096, NULL, 1,
+        ppg_task_stack, &ppg_task_tcb, tskNO_AFFINITY);
+    xTaskCreateStaticPinnedToCore(vTimerTask, "TimerTask", 2048, NULL, 1,
+        timer_task_stack, &timer_task_tcb, tskNO_AFFINITY);
 
     Ble_Driver_Init();
 }

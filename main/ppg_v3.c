@@ -7,11 +7,14 @@
 #include "ppg_v3.h"
 #include "ppg_v3_cnn_weights.h"
 
-#define HP_ALPHA    0.04f
-#define INT_K       20
-#define THRESHOLD   0.5f
-#define REFRACTORY  20
-#define HR_SMA      0.3f
+#define HP_ALPHA        0.04f
+#define MF_K            13
+#define THRESHOLD       0.5f
+#define REFRACTORY      20
+#define BPM_GAP_MAX     158
+#define BPM_WINDOW      4
+#define BPM_HOLD_SAMPLES 1500
+#define BPM_EWM_ALPHA   0.04f
 
 static float ir_emean, red_emean;
 static float ir_hp_buf[CNN_WINDOW_SIZE];
@@ -19,11 +22,20 @@ static float red_hp_buf[CNN_WINDOW_SIZE];
 static uint16_t buf_idx;
 static uint32_t sample_count;
 
-static float int_buf[INT_K];
-static uint8_t int_idx;
-static float int_sum;
+static float mf_buf[MF_K];
+static uint8_t mf_idx;
+static bool mf_ready;
+static float mf_tmp[MF_K];
+
+static bool above_threshold;
 static uint32_t last_beat_sample;
-static float hr_interval_sma;
+static uint32_t beat_idx_buf[BPM_WINDOW];
+static uint8_t beat_window_count;
+
+static float bpm_last_valid;
+static uint32_t bpm_hold_counter;
+static float bpm_smoothed;
+
 static float dc_ir_slow;
 static float proc_smooth;
 
@@ -185,11 +197,15 @@ void PPG_V3_Init(void)
     buf_idx = 0;
     sample_count = 0;
 
-    memset(int_buf, 0, sizeof(int_buf));
-    int_idx = 0;
-    int_sum = 0.0f;
+    memset(mf_buf, 0, sizeof(mf_buf));
+    mf_idx = 0;
+    mf_ready = false;
     last_beat_sample = 0;
-    hr_interval_sma = 0.0f;
+    above_threshold = false;
+    beat_window_count = 0;
+    bpm_last_valid = 0;
+    bpm_hold_counter = 0;
+    bpm_smoothed = 0;
     dc_ir_slow = 0.0f;
     proc_smooth = 0.0f;
 
@@ -256,29 +272,65 @@ void PPG_V3_Process(uint16_t ir_raw, uint16_t red_raw)
         // CNN forward
         float prob_raw = cnn_forward();
 
-        // Box filter integration (k=20)
-        int_sum += prob_raw - int_buf[int_idx];
-        int_buf[int_idx] = prob_raw;
-        int_idx = (int_idx + 1) % INT_K;
-        float p_smooth = int_sum / (float)INT_K;
+        // Median filter (k=13)
+        mf_buf[mf_idx] = prob_raw;
+        mf_idx = (mf_idx + 1) % MF_K;
+        if (sample_count >= CNN_WINDOW_SIZE + MF_K) mf_ready = true;
 
-        // Beat detection
-        bool beat = false;
-        if (p_smooth >= THRESHOLD && (sample_count - last_beat_sample) >= REFRACTORY) {
-            beat = true;
-            uint32_t interval = sample_count - last_beat_sample;
-            if (last_beat_sample > 0) {
-                if (hr_interval_sma == 0)
-                    hr_interval_sma = (float)interval;
-                else
-                    hr_interval_sma = HR_SMA * interval + (1.0f - HR_SMA) * hr_interval_sma;
-                float hr = 6000.0f / hr_interval_sma;
-                hr = hr + 0.5f;
-                if (hr < 30) hr = 30;
-                if (hr > 240) hr = 240;
-                PPG_SetHR((uint8_t)hr);
+        float p_med = prob_raw;
+        if (mf_ready) {
+            memcpy(mf_tmp, mf_buf, sizeof(mf_buf));
+            for (int i = 1; i < MF_K; i++) {
+                float key = mf_tmp[i];
+                int j = i - 1;
+                while (j >= 0 && mf_tmp[j] > key) {
+                    mf_tmp[j + 1] = mf_tmp[j];
+                    j--;
+                }
+                mf_tmp[j + 1] = key;
             }
-            last_beat_sample = sample_count;
+            p_med = mf_tmp[MF_K / 2];
+        }
+
+        // Hysteresis beat detection
+        bool beat = false;
+        if (p_med >= THRESHOLD) {
+            if (!above_threshold && (sample_count - last_beat_sample) >= REFRACTORY) {
+                beat = true;
+                uint32_t interval = sample_count - last_beat_sample;
+                if (interval >= 20 && interval <= BPM_GAP_MAX && last_beat_sample > 0) {
+                    beat_idx_buf[beat_window_count % BPM_WINDOW] = interval;
+                    beat_window_count++;
+                    if (beat_window_count >= BPM_WINDOW) {
+                        uint32_t sum = 0;
+                        for (int i = 0; i < BPM_WINDOW; i++)
+                            sum += beat_idx_buf[i];
+                        float mean_ppi = (float)sum / BPM_WINDOW;
+                        bpm_last_valid = 6000.0f / mean_ppi;
+                        bpm_hold_counter = 0;
+                    }
+                }
+                last_beat_sample = sample_count;
+            }
+            above_threshold = true;
+        } else {
+            above_threshold = false;
+        }
+
+        // Hold + EWM smooth (every sample)
+        bpm_hold_counter++;
+        if (bpm_hold_counter < BPM_HOLD_SAMPLES) {
+            if (bpm_last_valid > 0) {
+                bpm_smoothed = BPM_EWM_ALPHA * bpm_last_valid + (1.0f - BPM_EWM_ALPHA) * bpm_smoothed;
+            }
+        } else {
+            bpm_smoothed *= 0.995f;
+        }
+        if (bpm_smoothed > 0) {
+            float hr_out = bpm_smoothed + 0.5f;
+            if (hr_out < 30) hr_out = 30;
+            if (hr_out > 200) hr_out = 200;
+            PPG_SetHR((uint8_t)hr_out);
         }
 
         // SpO2 calculation (update every frame ≈ 1s at CNN_WINDOW_SIZE=200, 50Hz = 4s)
