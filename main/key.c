@@ -128,11 +128,18 @@ KeyEvent_t Key_Scan(uint8_t *out_key)
 
 void Key_Event_Handler(KeyEvent_t evt, uint8_t key_id)
 {
-    if (currentState == STATE_TIMER_SET || currentState == STATE_TIMER_DONE) {
-        if (currentState == STATE_TIMER_DONE) {
+    if (currentState == STATE_TIMER_SET) {
+        TimerConfirmEntry_t dummy;
+        Timer_PopConfirm(&dummy);
+        if (!Timer_PeekConfirm(&dummy))
+            currentState = STATE_TIMER_STATUS;
+        return;
+    }
+    if (currentState == STATE_TIMER_DONE) {
+        if (Timer_HasJustExpired(TIMER_DRINK))
             Timer_ClearExpiryFlag(TIMER_DRINK);
+        else
             Timer_ClearExpiryFlag(TIMER_MEDICINE);
-        }
         currentState = STATE_TIMER_STATUS;
         return;
     }

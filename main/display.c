@@ -555,13 +555,15 @@ static void Display_Draw_TimerStatus(void)
 
 static void Display_Draw_TimerSet(void)
 {
-    TimerType_t active = TIMER_COUNT;
-    uint32_t total_secs = 0;
-    if (Timer_IsActive(TIMER_DRINK)) { active = TIMER_DRINK; total_secs = Timer_GetTotalSecs(TIMER_DRINK); }
-    else if (Timer_IsActive(TIMER_MEDICINE)) { active = TIMER_MEDICINE; total_secs = Timer_GetTotalSecs(TIMER_MEDICINE); }
+    TimerConfirmEntry_t entry;
+    if (!Timer_PeekConfirm(&entry)) {
+        entry.type = TIMER_DRINK;
+        entry.is_set = false;
+        entry.minutes = 0;
+    }
 
-    if (active < TIMER_COUNT) {
-        const char *type_str = (active == TIMER_DRINK) ? "drink" : "medicine";
+    if (entry.is_set) {
+        const char *type_str = (entry.type == TIMER_DRINK) ? "drink" : "medicine";
         u8g2_SetFont(&u8g2, u8g2_font_ncenB10_tr);
         u8g2_DrawStr(&u8g2, 16, 22, "Set OK");
 
@@ -570,15 +572,17 @@ static void Display_Draw_TimerSet(void)
         snprintf(buf, sizeof(buf), "%s timer", type_str);
         u8g2_DrawStr(&u8g2, 8, 40, buf);
 
-        uint32_t minutes = total_secs / 60;
-        snprintf(buf, sizeof(buf), "remind in %umin", (unsigned)minutes);
+        snprintf(buf, sizeof(buf), "remind in %umin", (unsigned)(entry.minutes));
         u8g2_DrawStr(&u8g2, 8, 54, buf);
     } else {
         u8g2_SetFont(&u8g2, u8g2_font_ncenB10_tr);
         u8g2_DrawStr(&u8g2, 16, 22, "Cancelled");
 
         u8g2_SetFont(&u8g2, u8g2_font_ncenB08_tr);
-        u8g2_DrawStr(&u8g2, 8, 44, "timer");
+        const char *type_str = (entry.type == TIMER_DRINK) ? "drink" : "medicine";
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%s timer", type_str);
+        u8g2_DrawStr(&u8g2, 8, 44, buf);
     }
 }
 

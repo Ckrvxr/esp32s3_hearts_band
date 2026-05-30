@@ -178,7 +178,10 @@ static void vTimerTask(void *pvParameters)
                 timer_set_start = xTaskGetTickCount();
             else if ((xTaskGetTickCount() - timer_set_start) >= pdMS_TO_TICKS(5000)) {
                 timer_set_start = 0;
-                currentState = STATE_TIMER_STATUS;
+                TimerConfirmEntry_t dummy;
+                Timer_PopConfirm(&dummy);
+                if (!Timer_PeekConfirm(&dummy))
+                    currentState = STATE_TIMER_STATUS;
             }
         } else {
             timer_set_start = 0;

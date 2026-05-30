@@ -85,3 +85,37 @@ void Timer_ClearExpiryFlag(TimerType_t type)
     if (type >= TIMER_COUNT) return;
     g_timer_just_expired[type] = false;
 }
+
+#define CONFIRM_QUEUE_SIZE 8
+static TimerConfirmEntry_t g_confirm_queue[CONFIRM_QUEUE_SIZE];
+static uint8_t g_confirm_head;
+static uint8_t g_confirm_count;
+
+void Timer_PushConfirm(TimerType_t type, bool is_set, uint32_t minutes)
+{
+    if (g_confirm_count >= CONFIRM_QUEUE_SIZE) return;
+    uint8_t tail = (g_confirm_head + g_confirm_count) % CONFIRM_QUEUE_SIZE;
+    g_confirm_queue[tail].type = type;
+    g_confirm_queue[tail].is_set = is_set;
+    g_confirm_queue[tail].minutes = minutes;
+    g_confirm_count++;
+    ESP_LOGI(TAG, "confirm queued: %s %s %um",
+             type == TIMER_DRINK ? "drink" : "medicine",
+             is_set ? "set" : "cancel", minutes);
+}
+
+bool Timer_PopConfirm(TimerConfirmEntry_t *out)
+{
+    if (g_confirm_count == 0 || !out) return false;
+    *out = g_confirm_queue[g_confirm_head];
+    g_confirm_head = (g_confirm_head + 1) % CONFIRM_QUEUE_SIZE;
+    g_confirm_count--;
+    return true;
+}
+
+bool Timer_PeekConfirm(TimerConfirmEntry_t *out)
+{
+    if (g_confirm_count == 0 || !out) return false;
+    *out = g_confirm_queue[g_confirm_head];
+    return true;
+}
