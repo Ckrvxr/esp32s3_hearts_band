@@ -18,5 +18,6 @@
     "comments": "",
     "textMateRules": []
   },
-  "idf.monitorPort": "COM3"
+  "idf.monitorPort": "/dev/ttyACM0",
+  "idf.port": "/dev/ttyACM0"
 }

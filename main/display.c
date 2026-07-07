@@ -17,8 +17,8 @@
 #include "timer.h"
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
-#define I2C_MASTER_SCL      4
-#define I2C_MASTER_SDA      5
+#define I2C_MASTER_SCL      3
+#define I2C_MASTER_SDA      4
 #define I2C_MASTER_FREQ_HZ  400000
 #define I2C_ADDR_7BIT       0x3C
 #define I2C_MASTER_TIMEOUT_MS 100

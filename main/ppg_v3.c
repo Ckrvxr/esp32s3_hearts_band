@@ -1,6 +1,8 @@
 #include <math.h>
 #include <string.h>
+#include <stdio.h>
 
+#include "esp_log.h"
 #include "driver/uart.h"
 
 #include "ppg.h"
@@ -364,7 +366,9 @@ void PPG_V3_Process(uint16_t ir_raw, uint16_t red_raw)
 
     char line[64];
     int len = snprintf(line, sizeof(line), "IR,RED,%u,%u\n", ir_raw, red_raw);
-    uart_write_bytes(UART_NUM_1, line, len);
+    if (uart_write_bytes(UART_NUM_0, line, len) != len) {
+        ESP_LOGE("PPG_V3", "UART0 write failed");
+    }
 }
 
 bool PPG_V3_HasContact(void)

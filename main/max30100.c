@@ -8,8 +8,8 @@
 #include "max30100.h"
 
 #define I2C_PORT       I2C_NUM_1
-#define I2C_SCL        18
-#define I2C_SDA        8
+#define I2C_SCL        17
+#define I2C_SDA        18
 #define I2C_FREQ_HZ    400000
 #define I2C_TIMEOUT_MS 100
 

@@ -1,3 +1,5 @@
+#include "esp_log.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -10,6 +12,7 @@
 #include "ppg.h"
 #include "ppg_v3.h"
 #include "timer.h"
+#include "buzzer.h"
 
 static void MainTask(void *pvParameters)
 {
@@ -49,6 +52,7 @@ static void vPpgTask(void *pvParameters)
     TickType_t xIdleStart = 0;
     uint16_t ir[MAX30100_FIFO_DEPTH];
     uint16_t red[MAX30100_FIFO_DEPTH];
+    uint16_t last_ir = 0;
     static float dc_ir = 0, dc_red = 0;
 
     MAX30100_AutoAdjust_Init();
@@ -62,11 +66,12 @@ static void vPpgTask(void *pvParameters)
             {
                 uint8_t n = MAX30100_ReadFifo(ir, red);
                 for (int i = 0; i < n; i++) {
-                    dc_ir  = 0.999f * dc_ir  + 0.001f * ir[i];
+                    last_ir = ir[i];
+                    dc_ir  = 0.999f * dc_ir  + 0.001f * last_ir;
                     dc_red = 0.999f * dc_red + 0.001f * red[i];
-                    MAX30100_AutoAdjust_FeedSample(ir[i]);
-                    PPG_PushSample(ir[i], red[i]);
-                    PPG_V3_Process(ir[i], red[i]);
+                    MAX30100_AutoAdjust_FeedSample(last_ir);
+                    PPG_PushSample(last_ir, red[i]);
+                    PPG_V3_Process(last_ir, red[i]);
                 }
 
                 if (!PPG_V3_HasContact()) {
@@ -155,22 +160,14 @@ static void vTimerTask(void *pvParameters)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     TickType_t timer_set_start = 0;
-    uint8_t debug_startup = 0;
     while (1) {
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
-
-        if (debug_startup < 10) {
-            debug_startup++;
-            if (debug_startup == 10) {
-                Timer_Set(TIMER_DRINK, 1);
-                currentState = STATE_TIMER_SET;
-            }
-        }
 
         Timer_CheckExpiry();
 
         if (Timer_HasJustExpired(TIMER_DRINK) || Timer_HasJustExpired(TIMER_MEDICINE)) {
             currentState = STATE_TIMER_DONE;
+            Buzzer_PlayBachBWV847();
         }
 
         if (currentState == STATE_TIMER_SET) {
@@ -207,6 +204,7 @@ void app_main(void)
     Key_Init();
     MAX30100_Init();
     Timer_Init();
+    Buzzer_Init();
 
     uart_config_t uart_cfg = {
         .baud_rate = 921600,
@@ -215,9 +213,10 @@ void app_main(void)
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
     };
-    uart_param_config(UART_NUM_1, &uart_cfg);
-    uart_set_pin(UART_NUM_1, 21, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(UART_NUM_1, 256, 0, 0, NULL, 0);
+    ESP_ERROR_CHECK(uart_param_config(UART_NUM_0, &uart_cfg));
+    ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, 43, 44, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    ESP_ERROR_CHECK(uart_driver_install(UART_NUM_0, 256, 1024, 0, NULL, 0));
+    ESP_LOGI("MAIN", "UART0 initialized (CH343, TX=GPIO43, 115200)");
 
     xTaskCreateStaticPinnedToCore(MainTask, "MainTask", 4096, NULL, 1,
         main_task_stack, &main_task_tcb, tskNO_AFFINITY);

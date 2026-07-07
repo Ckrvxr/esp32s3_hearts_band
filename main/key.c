@@ -9,10 +9,10 @@
 #include "timer.h"
 
 // ------------------------------------------------------ Driver -------------------------------------------------------
-#define KEY_UP      16
-#define KEY_DOWN    15
-#define KEY_CONFIRM  7
-#define KEY_CANCEL   6
+#define KEY_UP      15
+#define KEY_DOWN     7
+#define KEY_CONFIRM  6
+#define KEY_CANCEL   5
 
 #define KEY_MASK    ((1ULL << KEY_UP) | (1ULL << KEY_DOWN) | (1ULL << KEY_CONFIRM) | (1ULL << KEY_CANCEL))
 
